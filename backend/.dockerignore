@@ -1,0 +1,20 @@
+# Dependencias y entornos
+venv/
+*.egg-info/
+__pycache__/
+*.pyc
+
+# Archivos locales y de datos
+.env
+*.db
+*.sqlite
+.pytest_cache/
+.pytest_cache
+htmlcov/
+.coverage
+
+# Notas del SO / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

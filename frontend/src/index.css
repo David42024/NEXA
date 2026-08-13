@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+html.dark body {
+  background-color: #06111f;
+  color: #e2e8f0;
+}
+
+body {
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #1b3357;
+}
+
+:focus-visible {
+  outline: 2px solid #00AEEF;
+  outline-offset: 2px;
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-xl2 shadow-card border border-black/5 dark:bg-navy-800/60 dark:border-white/5;
+  }
+  .btn-primary {
+    @apply bg-cyan-500 hover:bg-cyan-600 text-white font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-slate-50 text-navy-900 font-semibold px-4 py-2 rounded-lg border border-slate-200 transition-colors dark:bg-white/5 dark:hover:bg-white/10 dark:text-white dark:border-white/10;
+  }
+  .btn-ghost {
+    @apply text-navy-700 hover:text-cyan-600 font-medium transition-colors dark:text-slate-300 dark:hover:text-cyan-300;
+  }
+  .input {
+    @apply w-full px-3.5 py-2.5 rounded-lg border border-slate-200 bg-white text-sm focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-colors dark:bg-white/5 dark:border-white/10 dark:text-white dark:placeholder:text-slate-500;
+  }
+  .label-eyebrow {
+    @apply text-[11px] font-semibold tracking-wider uppercase text-slate-400 dark:text-slate-500;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+}
+
+/* Modo oscuro: reversion de colores navy usados como texto en las paginas,
+   para que el tema global se propague sin tocar cada pagina. */
+.dark .text-navy-900 {
+  color: #f1f5f9;
+}
+.dark .text-navy-800 {
+  color: #cbd5e1;
+}
+.dark .text-navy-700 {
+  color: #94a3b8;
+}
+.dark [class*="bg-navy-900/5"] {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+.dark [class*="bg-navy-900/10"] {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+@keyframes nexa-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-nexa-rise {
+  animation: nexa-rise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
