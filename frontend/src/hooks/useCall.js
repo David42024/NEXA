@@ -37,7 +37,7 @@ async function createPeer(stream, onCandidate) {
  * Devuelve la instancia para poder detenerla; null si el navegador no soporta STT
  * (p.ej. iOS/Safari), donde la llamada funciona igual sin transcripcion.
  */
-function createSTT(ws, speaker, isActive) {
+function createSTT(ws, speaker, isActive, isPaused) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) return null
   const rec = new SR()
@@ -54,12 +54,14 @@ function createSTT(ws, speaker, isActive) {
   }
   rec.onerror = () => {}
   rec.onend = () => {
-    // La transcripcion no debe cortar la llamada; solo reinicia.
-    if (isActive()) {
+    // Reutiliza la MISMA instancia; crear una nueva tras cada pausa deja el
+    // reconocimiento mudo en Chrome (InvalidStateError). Solo reinicia si la
+    // llamada sigue activa y no estamos en pausa (mientras habla el bot).
+    if (isActive() && !isPaused()) {
       try { rec.start() } catch { /* transcribiendo */ }
     }
   }
-  rec.start()
+  try { rec.start() } catch { /* transcribiendo */ }
   return rec
 }
 
@@ -274,7 +276,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   }
 
   function startSTT() {
-    recRef.current = createSTT(wsRef.current, 'asesor', () => phaseRef.current === 'active')
+    if (recRef.current) return
+    recRef.current = createSTT(wsRef.current, 'asesor', () => phaseRef.current === 'active', () => false)
   }
 
   function toggleMute() {
@@ -337,6 +340,7 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   const wsRef = useRef(null)
   const pcRef = useRef(null)
   const recRef = useRef(null)
+  const pausedRef = useRef(false)
   const utteranceRef = useRef(null)
   const phaseRef = useRef('incoming')
   const endedRef = useRef(false)
@@ -364,29 +368,31 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     if (recRef.current) {
       recRef.current.onresult = null
       recRef.current.onend = null
-      recRef.current.stop()
+      try { recRef.current.stop() } catch { /* ya detenida */ }
       recRef.current = null
     }
+    pausedRef.current = false
   }
 
   function startSTT(ws) {
-    recRef.current = createSTT(ws, 'cliente', () => phaseRef.current === 'active')
+    if (recRef.current) return
+    pausedRef.current = false
+    recRef.current = createSTT(ws, 'cliente', () => phaseRef.current === 'active', () => pausedRef.current)
   }
 
   // Pausa la transcripcion mientras el bot habla (evita que se escuche a si mismo).
   function pauseSTT() {
-    if (recRef.current) {
-      recRef.current.onresult = null
-      recRef.current.onend = null
-      try { recRef.current.stop() } catch { /* ya detenida */ }
-      recRef.current = null
-    }
+    pausedRef.current = true
+    try { recRef.current?.stop() } catch { /* ya detenida */ }
   }
 
   function restartSTT() {
-    if (phaseRef.current === 'active' && !recRef.current) {
-      startSTT(wsRef.current)
-    }
+    pausedRef.current = false
+    if (phaseRef.current !== 'active') return
+    if (!recRef.current) { startSTT(wsRef.current); return }
+    // Reanuda la MISMA instancia: crear una nueva tras cada pausa deja el
+    // reconocimiento mudo en Chrome y el bot ya no escucharía al cliente.
+    try { recRef.current.start() } catch { /* ya transcribiendo */ }
   }
 
   function speakBot(text) {
@@ -401,8 +407,8 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     const done = () => {
       utteranceRef.current = null
       setBotSpeaking(false)
-      // Espera al cliente: se reactiva la escucha y se muestra que está atento.
-      restartSTT()
+      // Pequeña pausa para que el eco del TTS se asiente, luego espera al cliente.
+      setTimeout(() => restartSTT(), 400)
     }
     u.onend = done
     u.onerror = done

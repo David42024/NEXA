@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Phone,
   Hourglass,
+  List,
 } from 'lucide-react'
 import api from '../../utils/api'
 
@@ -84,6 +85,16 @@ export default function NexabotCopilot({
   const speechLoadingNow = speechLoading === topOffer?.oferta
   const firstVariant = speech?.variantes?.[0]
   const rebateVariant = speech?.variantes?.[1]
+
+  // Resumen de lo que el cliente dijo durante la llamada (sin repetir seguidas).
+  const clientLines = []
+  let lastLine = ''
+  liveCopilot.forEach((e) => {
+    if (e.type === 'stt' && e.speaker !== 'asesor' && e.text !== lastLine) {
+      clientLines.push(e)
+      lastLine = e.text
+    }
+  })
 
   const urgent = k.datosUrgent
   const dias = k.diasAgotamiento
@@ -259,6 +270,48 @@ export default function NexabotCopilot({
                 )
               })}
             </div>
+          </div>
+        )}
+
+        {/* Resumen de la llamada: lo que dijo el cliente + pitch/rebate */}
+        {clientLines.length > 0 && (
+          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <List className="h-3.5 w-3.5" />
+              Resumen del cliente
+            </p>
+            <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
+              {clientLines.map((line, i) => (
+                <p
+                  key={i}
+                  className="rounded-md bg-white px-2.5 py-1.5 text-[11px] leading-relaxed text-navy-900 dark:bg-white/5 dark:text-slate-200"
+                >
+                  {line.text}
+                </p>
+              ))}
+            </div>
+            {topOffer && (
+              <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onGenerateSpeech(topOffer)}
+                  disabled={speechLoadingNow || !canSpeech}
+                  className="flex items-center justify-center gap-1 rounded-md bg-cyan-500 px-2 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
+                >
+                  {speechLoadingNow ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  {speechLoadingNow ? 'Generando' : 'Generar pitch'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowRebate((v) => !v)}
+                  disabled={!firstVariant}
+                  className="flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+                >
+                  <BadgePercent className="h-3 w-3" />
+                  {showRebate ? 'Ocultar' : 'Ver rebate'}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
