@@ -236,6 +236,7 @@ class P2PWebRTCProvider:
             result = {"reply": "", "source": "local"}
         text = _clean_speech(result["reply"]) or _default_opening(sess.ctx)
         kind = "response" if continuation else "opening"
+        await self._send(sess.cliente_ws, {"type": "bot_thinking"})
         await self._send(sess.cliente_ws, {"type": "bot_speech", "text": text, "source": result["source"], "kind": kind})
         await self._send(sess.asesor_ws, {
             "type": "copilot",
@@ -280,6 +281,8 @@ class P2PWebRTCProvider:
 
         # Voz del cliente: deteccion de objecion + sugerencia para el asesor.
         objection = classify_objection(text)
+        if sess.mode == "bot":
+            await self._send(sess.cliente_ws, {"type": "bot_thinking"})
         prompt = (
             f"El cliente acaba de decir: \"{text}\". Detecta su objecion y redacta una "
             "sugerencia accionable (max 4 frases) para el asesor. Si el asesor va a "

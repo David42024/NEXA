@@ -97,7 +97,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   const [phase, setPhase] = useState('idle') // idle | starting | ringing | active | ended
   const [error, setError] = useState(null)
   const [callInfo, setCallInfo] = useState(null)
-  const [muted, setMuted] = useState(false)
+  const [muted, setMuted] = useState(true) // el asesor arranca silenciado
   const [recordingUrl, setRecordingUrl] = useState(null)
   const [mode, setMode] = useState('bot') // bot | asesor
   const { duration, startTimer, stopTimer } = useTimer()
@@ -189,6 +189,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
+      // Silenciado por defecto: el bot conduce la llamada; el asesor habla cuando quiera.
+      stream.getAudioTracks().forEach((t) => { t.enabled = false })
     } catch {
       setError('No se pudo acceder al micrófono. Revisa el permiso del navegador.')
       setPhaseAll('idle')
@@ -307,6 +309,10 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     if (next === mode || (next !== 'bot' && next !== 'asesor')) return
     setMode(next)
     wsRef.current?.send(JSON.stringify({ type: 'mode', mode: next }))
+    // En modo bot el mic del asesor se apaga; en modo asesor se enciende para hablar.
+    const enable = next === 'asesor'
+    streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = enable })
+    setMuted(!enable)
   }
 
   return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, mode, switchMode, start, toggleMute, hangup, reset }
@@ -322,6 +328,7 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   const [muted, setMuted] = useState(false)
   const [botText, setBotText] = useState('')
   const [botSpeaking, setBotSpeaking] = useState(false)
+  const [thinking, setThinking] = useState(false)
   const [mode, setMode] = useState('bot') // bot | asesor
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
@@ -386,19 +393,24 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     if (!window.speechSynthesis || !text) return
     if (utteranceRef.current) window.speechSynthesis.cancel()
     pauseSTT()
+    setThinking(false)
     const u = new SpeechSynthesisUtterance(text)
     u.lang = 'es-PE'
-    u.rate = 1.02
+    u.rate = 1.0
+    u.volume = 1
     const done = () => {
       utteranceRef.current = null
       setBotSpeaking(false)
+      // Espera al cliente: se reactiva la escucha y se muestra que está atento.
       restartSTT()
     }
     u.onend = done
     u.onerror = done
     utteranceRef.current = u
-    setBotText(text)
     setBotSpeaking(true)
+    // resume() evita el bug de Chrome donde el TTS se queda mudo tras cancel().
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.resume()
     window.speechSynthesis.speak(u)
   }
 
@@ -444,6 +456,8 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
         try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
       } else if (msg.type === 'bot_speech') {
         speakBot(msg.text)
+      } else if (msg.type === 'bot_thinking') {
+        setThinking(true)
       } else if (msg.type === 'mode') {
         if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
       } else if (msg.type === 'ended') {
@@ -484,5 +498,5 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     setPhaseAll('ended')
   }
 
-  return { phase, error, duration, muted, botText, botSpeaking, mode, sttSupported, answer, decline, toggleMute, hangup }
+  return { phase, error, duration, muted, botText, botSpeaking, thinking, mode, sttSupported, answer, decline, toggleMute, hangup }
 }

@@ -110,14 +110,21 @@ export default function ClientCall() {
               </p>
             )}
 
-            {call.botSpeaking && call.botText && (
-              <div className="mx-auto mt-4 max-w-sm rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-left">
-                <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
-                  Nexabot habla
-                </p>
-                <p className="mt-1 text-xs leading-relaxed text-slate-100">{call.botText}</p>
-              </div>
+            {call.thinking ? (
+              <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-cyan-300">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
+                Nexabot está pensando…
+              </p>
+            ) : call.botSpeaking ? (
+              <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-400">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+                Nexabot está hablando… escucha
+              </p>
+            ) : (
+              <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-emerald-400">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                Escuchándote… respóndele al asistente
+              </p>
             )}
 
             {!sttSupported && (
