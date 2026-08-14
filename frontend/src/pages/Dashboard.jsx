@@ -94,7 +94,7 @@ function MetaRow({ label, ventas, meta, pct, falta }) {
           </span>
         )}
       </div>
-      <p className="font-display text-3xl font-bold text-navy-900 dark:text-white">
+      <p className="font-display text-2xl font-bold text-navy-900 dark:text-white sm:text-3xl">
         {ventas}
         <span className="ml-2 text-sm font-medium text-slate-400">de {meta} ventas</span>
       </p>
@@ -285,7 +285,7 @@ export default function Dashboard() {
                       )}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                     {c.llamable_ahora && (
                       <span
                         className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
