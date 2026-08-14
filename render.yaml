@@ -8,6 +8,9 @@ services:
     name: nexa-api
     runtime: python
     plan: free
+    # Python 3.12: psycopg2-binary y pydantic-core (pinned) tienen wheels.
+    # Con 3.14 Render intenta compilarlos desde fuente (Rust) y falla.
+    pythonVersion: 3.12.3
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: alembic upgrade head && python -c "from app.seed_data import seed; seed()" && uvicorn app.main:app --host 0.0.0.0 --port $PORT
