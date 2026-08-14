@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Phone,
   PhoneOff,
@@ -23,9 +23,11 @@ export default function LiveCallPanel({
   onCopilotEvent,
   onE2E,
   canStart = true,
+  onCallEnded,
 }) {
   const [copied, setCopied] = useState(false)
   const audioRef = useRef(null)
+  const wasActive = useRef(false)
 
   const call = useAsesorCall({
     clientId,
@@ -38,6 +40,16 @@ export default function LiveCallPanel({
       }
     },
   })
+
+  // Al terminar una llamada que sí llegó a conectarse, avisa al perfil para
+  // que el asesor complete los datos faltantes del cliente (post-llamada).
+  useEffect(() => {
+    if (call.phase === 'active') wasActive.current = true
+    if (call.phase === 'ended' && wasActive.current) {
+      wasActive.current = false
+      onCallEnded?.()
+    }
+  }, [call.phase, onCallEnded])
 
   const firstName = clientName?.split(' ')[0] || 'cliente'
 

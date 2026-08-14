@@ -9,18 +9,23 @@ describe('ScoreBadge', () => {
     expect(screen.getByText('75% prob.')).toBeInTheDocument()
   })
 
-  it('verde para score >= 70', () => {
-    const { container } = render(<ScoreBadge value={70} />)
+  it('verde para score >= 85 (prioridad muy alta)', () => {
+    const { container } = render(<ScoreBadge value={85} />)
     expect(container.querySelector('span.bg-green-500')).toBeInTheDocument()
   })
 
-  it('ámbar para score entre 50 y 69', () => {
-    const { container } = render(<ScoreBadge value={50} />)
+  it('lima para score entre 70 y 84 (prioridad alta)', () => {
+    const { container } = render(<ScoreBadge value={70} />)
+    expect(container.querySelector('span.bg-lime-500')).toBeInTheDocument()
+  })
+
+  it('ámbar para score entre 55 y 69 (prioridad media)', () => {
+    const { container } = render(<ScoreBadge value={55} />)
     expect(container.querySelector('span.bg-amber-500')).toBeInTheDocument()
   })
 
-  it('rojo para score < 50', () => {
-    const { container } = render(<ScoreBadge value={49} />)
+  it('rojo para score < 55 (prioridad baja)', () => {
+    const { container } = render(<ScoreBadge value={54} />)
     expect(container.querySelector('span.bg-red-500')).toBeInTheDocument()
   })
 

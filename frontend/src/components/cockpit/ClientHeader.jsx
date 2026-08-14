@@ -1,5 +1,5 @@
 import React from 'react'
-import { Calendar, MapPin, AlertTriangle, Clock, RefreshCw, Sparkles, Database } from 'lucide-react'
+import { Calendar, MapPin, AlertTriangle, Clock, RefreshCw, Sparkles } from 'lucide-react'
 
 const FRICCION_STYLE = {
   'Riesgo alto': 'bg-rose-500/10 text-rose-600 border-rose-200 dark:bg-rose-400/10 dark:text-rose-300 dark:border-rose-400/30',
@@ -64,10 +64,12 @@ export default function ClientHeader({ client, k, hasRecs, generating, onGenerat
               {generating ? 'Generando…' : hasRecs ? 'Regenerar recomendación' : 'Generar recomendación'}
             </button>
           )}
+          {/* Comentado: la solicitud de datos ahora se hace post-llamada (modal al colgar).
           <button onClick={onRequestData} className="btn-ghost text-xs flex items-center gap-1.5">
             <Database className="h-3.5 w-3.5" />
             Solicitar datos
           </button>
+          */}
         </div>
       </div>
     </div>

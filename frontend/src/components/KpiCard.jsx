@@ -3,6 +3,7 @@ import React from 'react'
 const gradientMap = {
   cyan: 'from-cyan-500 to-sky-500',
   blue: 'from-sky-500 to-blue-600',
+  emerald: 'from-emerald-500 to-teal-500',
   navy: 'from-navy-700 to-navy-800',
 }
 

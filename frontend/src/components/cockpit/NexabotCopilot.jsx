@@ -8,7 +8,6 @@ import {
   Send,
   RefreshCw,
   Sparkles,
-  Database,
   MessageSquare,
   Phone,
 } from 'lucide-react'
@@ -329,6 +328,7 @@ export default function NexabotCopilot({
       </div>
 
       <div className="border-t border-slate-100 px-4 py-3 dark:border-white/10">
+        {/* Comentado: la solicitud de datos ahora se hace post-llamada (modal al colgar).
         <button
           onClick={onRequestData}
           className="flex items-center gap-1.5 text-[11px] font-medium text-slate-500 transition-colors hover:text-cyan-600 dark:text-slate-400 dark:hover:text-white"
@@ -336,6 +336,7 @@ export default function NexabotCopilot({
           <Database className="h-3.5 w-3.5" />
           ¿Falta información? Solicitar datos
         </button>
+        */}
       </div>
     </aside>
   )

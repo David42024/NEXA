@@ -1,9 +1,21 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../utils/api'
 import ScoreBadge from '../components/ScoreBadge.jsx'
+import ScoreLegend from '../components/ScoreLegend.jsx'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 10
+
+const ELIG_MOTIVOS = ['Elegible MT', 'Elegible upgrade', 'Elegible equipo', 'Elegible Plan Hogar']
+
+function ArrowRightIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </svg>
+  )
+}
 
 export default function ClientSearch() {
   const [params] = useSearchParams()
@@ -19,6 +31,7 @@ export default function ClientSearch() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [listLoading, setListLoading] = useState(false)
+  const reqId = useRef(0)
   const navigate = useNavigate()
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -35,38 +48,55 @@ export default function ClientSearch() {
     }
   }
 
-  useEffect(() => {
-    if (params.get('q')) {
-      setSearchMode(true)
-      runSearch(params.get('q'))
-    } else {
-      loadList(1)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function runSearch(q) {
-    if (!q.trim()) return
+  async function fetchSearch(q) {
     setLoading(true)
     setSearched(true)
-    setConfirmation(null)
-    setValidationError(null)
-    setSearchMode(true)
     try {
       const { data } = await api.get(`/api/clients/search?q=${encodeURIComponent(q.trim())}`)
-      setResults(data.results)
-
-      if (data.is_id_query && !data.exact_match && data.results.length > 0) {
-        setConfirmation(data.results[0])
-      }
+      return data
     } finally {
       setLoading(false)
     }
   }
 
+  // Filtrado en vivo: cada tecla vuelve a consultar (debounce 300ms).
+  // Si se borra todo (o nunca se escribe), muestra la lista completa paginada.
+  useEffect(() => {
+    const q = query.trim()
+    const id = ++reqId.current
+    const t = setTimeout(async () => {
+      if (!q) {
+        setSearchMode(false)
+        setSearched(false)
+        setConfirmation(null)
+        setValidationError(null)
+        setResults([])
+        loadList(1)
+        return
+      }
+      setSearchMode(true)
+      setConfirmation(null)
+      const data = await fetchSearch(q).catch(() => ({ results: [] }))
+      if (id === reqId.current) setResults(data.results)
+    }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
+
   function handleSubmit(e) {
     e.preventDefault()
-    runSearch(query)
+    const q = query.trim()
+    if (!q) return
+    // Enter: ademas del filtrado en vivo, muestra confirmacion cuando el ID
+    // no existe exacto pero hay coincidencias parciales (spec 10.5).
+    setConfirmation(null)
+    setSearchMode(true)
+    fetchSearch(q).then((data) => {
+      setResults(data.results)
+      if (data.is_id_query && !data.exact_match && data.results.length > 0) {
+        setConfirmation(data.results[0])
+      }
+    })
   }
 
   function confirmClient() {
@@ -74,12 +104,7 @@ export default function ClientSearch() {
   }
 
   function cancelConfirmation() {
-    setConfirmation(null)
-    setResults([])
     setQuery('')
-    setSearchMode(false)
-    setValidationError(null)
-    loadList(1)
   }
 
   function selectClient(id) {
@@ -87,13 +112,7 @@ export default function ClientSearch() {
   }
 
   function backToAll() {
-    setSearchMode(false)
-    setResults([])
-    setSearched(false)
     setQuery('')
-    setValidationError(null)
-    setConfirmation(null)
-    loadList(1)
   }
 
   return (
@@ -110,7 +129,10 @@ export default function ClientSearch() {
           autoFocus
           aria-label="Buscar cliente por ID, nombre o DNI"
         />
-        <button className="btn-primary shrink-0" type="submit">Buscar</button>
+        <button className="btn-primary inline-flex shrink-0 items-center gap-1.5" type="submit">Buscar
+          <ArrowRightIcon className="h-4 w-4" />
+        </button>
+
       </form>
 
       {validationError && (
@@ -133,10 +155,15 @@ export default function ClientSearch() {
             <p className="text-xs text-slate-400">Resultados de búsqueda</p>
             <button onClick={backToAll} className="btn-ghost text-xs">Ver todos los clientes →</button>
           </div>
-          <div className="card divide-y divide-slate-100 max-w-2xl">
-            {results.map((c) => (
-              <ClientRow key={c.id} c={c} onSelect={selectClient} />
-            ))}
+          <div className="flex flex-wrap items-start gap-6">
+            <div className="card divide-y divide-slate-100 max-w-2xl min-w-0 flex-1">
+              {results.map((c) => (
+                <ClientRow key={c.id} c={c} onSelect={selectClient} />
+              ))}
+            </div>
+            <div className="shrink-0 lg:sticky lg:top-24">
+              <ScoreLegend />
+            </div>
           </div>
         </>
       )}
@@ -146,38 +173,45 @@ export default function ClientSearch() {
           <p className="mb-2 text-xs text-slate-400">
             Todos los clientes ordenados por probabilidad de aceptación (motor NBO)
           </p>
-          {listLoading ? (
-            <p className="text-sm text-slate-400">Cargando clientes…</p>
-          ) : list.length === 0 ? (
-            <div className="card p-6 max-w-2xl">
-              <p className="text-sm text-slate-500">No hay clientes registrados.</p>
-            </div>
-          ) : (
-            <div className="card divide-y divide-slate-100 max-w-2xl">
-              {list.map((c) => (
-                <ClientRow key={c.id} c={c} onSelect={selectClient} />
-              ))}
-            </div>
-          )}
+          <div className="flex flex-wrap items-start gap-6">
+            <div className="min-w-0 flex-1 max-w-2xl">
+              {listLoading ? (
+                <p className="text-sm text-slate-400">Cargando clientes…</p>
+              ) : list.length === 0 ? (
+                <div className="card p-6 max-w-2xl">
+                  <p className="text-sm text-slate-500">No hay clientes registrados.</p>
+                </div>
+              ) : (
+                <div className="card divide-y divide-slate-100 max-w-2xl">
+                  {list.map((c) => (
+                    <ClientRow key={c.id} c={c} onSelect={selectClient} />
+                  ))}
+                </div>
+              )}
 
-          <div className="mt-4 flex items-center gap-3 max-w-2xl">
-            <button
-              onClick={() => loadList(page - 1)}
-              disabled={page <= 1 || listLoading}
-              className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ← Anterior
-            </button>
-            <span className="text-xs text-slate-500">
-              Página {page} de {totalPages} · {total} clientes
-            </span>
-            <button
-              onClick={() => loadList(page + 1)}
-              disabled={page >= totalPages || listLoading}
-              className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Siguiente →
-            </button>
+              <div className="mt-4 flex items-center gap-3 max-w-2xl">
+                <button
+                  onClick={() => loadList(page - 1)}
+                  disabled={page <= 1 || listLoading}
+                  className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ← Anterior
+                </button>
+                <span className="text-xs text-slate-500">
+                  Página {page} de {totalPages} · {total} clientes
+                </span>
+                <button
+                  onClick={() => loadList(page + 1)}
+                  disabled={page >= totalPages || listLoading}
+                  className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Siguiente →
+                </button>
+              </div>
+            </div>
+            <div className="shrink-0 lg:sticky lg:top-24">
+              <ScoreLegend />
+            </div>
           </div>
         </>
       )}
@@ -214,21 +248,32 @@ function ClientRow({ c, onSelect }) {
   return (
     <button
       onClick={() => onSelect(c.id)}
-      className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+      className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors dark:hover:bg-white/5"
     >
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
           {c.name?.[0]}
         </div>
         <div>
-          <p className="font-medium text-navy-900">{c.name}</p>
-          <p className="text-xs text-slate-400 font-mono">{c.id} · {c.district}</p>
+          <p className="font-medium text-navy-900 dark:text-white">{c.name}</p>
+          <p className="text-xs text-slate-400 font-mono">
+            {c.id} · {c.district} · Plan {c.plan_actual || '—'}
+          </p>
+          {c.top_offer && (
+            <p className="mt-0.5 text-[11px] text-cyan-600 dark:text-cyan-400">
+              → {c.top_offer}
+              {c.motivo && !ELIG_MOTIVOS.includes(c.motivo) ? ` · por ${c.motivo}` : ''}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-2">
         {c.elegible && (
-          <span className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300">
-            Elegible
+          <span
+            className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"
+            title="Elegible para Movistar Total"
+          >
+            Elegible MT
           </span>
         )}
         <ScoreBadge value={c.score} />

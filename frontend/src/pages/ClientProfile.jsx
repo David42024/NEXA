@@ -21,6 +21,29 @@ const FEEDBACK_OPTIONS = [
   { value: 'other', label: 'Otro (especificar)' },
 ]
 
+const MISSING_FIELD_PRESETS = [
+  'Consumo de datos',
+  'Datos del hogar',
+  'Estado de pagos',
+  'Canales de contacto',
+  'Equipo actual',
+]
+
+const CALL_RESULTS = [
+  'La oferta le interesó',
+  'Pidió más información',
+  'No interesado',
+  'Sin respuesta',
+]
+
+const NEXT_STEPS = [
+  'Llamar mañana',
+  'Enviar WhatsApp',
+  'Enviar SMS',
+  'Agendar reunión',
+  'Sin seguimiento',
+]
+
 function ProfileSkeleton() {
   return (
     <div className="animate-pulse space-y-5">
@@ -68,6 +91,8 @@ export default function ClientProfile() {
   const [dataModal, setDataModal] = useState(false)
   const [missingField, setMissingField] = useState('')
   const [dataNotes, setDataNotes] = useState('')
+  const [callResult, setCallResult] = useState('')
+  const [nextStep, setNextStep] = useState('')
   const [dataSubmitting, setDataSubmitting] = useState(false)
   const [dataConfirmation, setDataConfirmation] = useState(null)
 
@@ -230,14 +255,21 @@ export default function ClientProfile() {
     if (!missingField.trim()) return
     setDataSubmitting(true)
     try {
+      const notas = [
+        dataNotes.trim(),
+        callResult ? `Resultado de la llamada: ${callResult}` : null,
+        nextStep ? `Próximo paso: ${nextStep}` : null,
+      ].filter(Boolean).join('\n')
       const { data } = await api.post(`/api/clients/${id}/request-data`, {
         campos_solicitados: missingField.trim(),
-        notas: dataNotes.trim() || null,
+        notas: notas || null,
       })
       setDataConfirmation(data.detail)
       setDataModal(false)
       setMissingField('')
       setDataNotes('')
+      setCallResult('')
+      setNextStep('')
     } finally {
       setDataSubmitting(false)
     }
@@ -290,16 +322,11 @@ export default function ClientProfile() {
       )}
 
       {client.data_completeness_warning && (
-        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-400/30 dark:bg-amber-400/10">
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-400/30 dark:bg-amber-400/10">
           <p className="text-xs text-amber-800 dark:text-amber-200">
             ⚠ Información incompleta — las recomendaciones pueden tener menor precisión.
+            Podrás solicitar los datos faltantes al terminar la llamada.
           </p>
-          <button
-            onClick={() => setDataModal(true)}
-            className="shrink-0 text-xs font-semibold text-amber-800 underline dark:text-amber-200"
-          >
-            Solicitar datos
-          </button>
         </div>
       )}
 
@@ -355,6 +382,7 @@ export default function ClientProfile() {
             onCopilotEvent={handleCopilotEvent}
             onE2E={handleOffering}
             canStart={canGenerate}
+            onCallEnded={() => setDataModal(true)}
           />
         </div>
 
@@ -442,17 +470,34 @@ export default function ClientProfile() {
         </div>
       )}
 
-      {/* Modal solicitar datos */}
+      {/* Modal solicitar datos (post-llamada) */}
       {dataModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
-            <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">Solicitar más datos</p>
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+            <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">Completar datos del cliente</p>
             <p className="mb-4 text-xs text-slate-400">
-              {client.name} · {client.id} — indica qué información falta para mejorar la recomendación.
+              {client.name} · {client.id} — la llamada terminó. Propón qué información falta para mejorar la recomendación.
             </p>
-            <div className="mb-4 space-y-3">
+
+            <div className="mb-4 space-y-4">
               <div>
                 <label className="label-eyebrow mb-1.5 block" htmlFor="missing-field">¿Qué información falta?</label>
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {MISSING_FIELD_PRESETS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setMissingField(p)}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                        missingField === p
+                          ? 'border-cyan-500 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300'
+                          : 'border-slate-200 text-slate-500 hover:border-cyan-400 hover:text-cyan-600 dark:border-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
                 <input
                   id="missing-field"
                   value={missingField}
@@ -461,6 +506,42 @@ export default function ClientProfile() {
                   placeholder="Ej: consumo de datos, estado de pagos, datos del hogar…"
                 />
               </div>
+
+              <div>
+                <p className="label-eyebrow mb-1.5 block">Resultado de la llamada</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {CALL_RESULTS.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setCallResult(r)}
+                      className={`rounded-lg border px-2 py-1.5 text-left text-[11px] font-medium transition-colors ${
+                        callResult === r
+                          ? 'border-cyan-500 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300'
+                          : 'border-slate-200 text-slate-500 hover:border-cyan-400 hover:text-cyan-600 dark:border-white/10 dark:text-slate-300'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="label-eyebrow mb-1.5 block" htmlFor="next-step">Próximo paso</label>
+                <select
+                  id="next-step"
+                  value={nextStep}
+                  onChange={(e) => setNextStep(e.target.value)}
+                  className="input"
+                >
+                  <option value="">Sin seguimiento</option>
+                  {NEXT_STEPS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="label-eyebrow mb-1.5 block" htmlFor="data-notes">Notas</label>
                 <textarea
@@ -468,10 +549,12 @@ export default function ClientProfile() {
                   value={dataNotes}
                   onChange={(e) => setDataNotes(e.target.value)}
                   className="input"
-                  rows={3}
+                  rows={2}
+                  placeholder="Detalles que capturaste en la llamada…"
                 />
               </div>
             </div>
+
             <div className="flex gap-2">
               <button
                 onClick={submitDataRequest}
@@ -480,7 +563,7 @@ export default function ClientProfile() {
               >
                 {dataSubmitting ? 'Enviando…' : 'Enviar solicitud'}
               </button>
-              <button onClick={() => setDataModal(false)} className="btn-ghost text-sm">Cancelar</button>
+              <button onClick={() => setDataModal(false)} className="btn-ghost text-sm">Omitir</button>
             </div>
           </div>
         </div>

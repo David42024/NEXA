@@ -41,6 +41,9 @@ class ClientSummary(BaseModel):
     segmento: Optional[str] = None
     elegible: bool = False
     score: int = 0
+    top_offer: Optional[str] = None
+    motivo: Optional[str] = None
+    plan_actual: Optional[str] = None
 
 
 class ClientListResponse(BaseModel):

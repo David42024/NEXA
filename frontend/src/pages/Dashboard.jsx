@@ -141,7 +141,7 @@ export default function Dashboard() {
           </p>
         </div>
         <form onSubmit={handleSearch} className="flex w-full gap-2 md:w-auto">
-          <div className="relative flex-1 md:w-72">
+          <div className="relative flex-1 md:w-48 lg:w-96">
             <SearchIcon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               value={query}
@@ -152,7 +152,7 @@ export default function Dashboard() {
           </div>
           <button
             type="submit"
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-cyan-500 px-4 py-2 font-medium text-navy-950 transition-colors duration-200 hover:bg-cyan-400"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-cyan-500 px-4 py-2 font-medium text-navy-950 transition-colors duration-200 hover:bg-cyan-400 dark:text-white"
           >
             Buscar
             <ArrowRightIcon className="h-4 w-4" />
@@ -162,10 +162,30 @@ export default function Dashboard() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard icon="👥" label="Clientes" value={loading ? '…' : kpis?.total_clientes ?? '—'} accent="blue" loading={loading} />
-        <KpiCard icon="🎯" label="Elegibles MT" value={loading ? '…' : kpis?.elegibles_mt ?? '—'} accent="cyan" loading={loading} />
-        <KpiCard icon="📈" label="Conversión" value={loading ? '…' : `${kpis?.conversion_pct ?? 0}%`} accent="cyan" loading={loading} />
-        <KpiCard icon="💰" label="Valor potencial" value={loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`} accent="navy" loading={loading} />
+        <KpiCard
+          icon="👥" label="Clientes" accent="blue"
+          value={loading ? '…' : kpis?.total_clientes ?? '—'}
+          sublabel="cartera total"
+          loading={loading}
+        />
+        <KpiCard
+          icon="🎯" label="Elegibles MT" accent="cyan"
+          value={loading ? '…' : kpis?.elegibles_mt ?? '—'}
+          sublabel="con Movistar Total"
+          loading={loading}
+        />
+        <KpiCard
+          icon="📈" label="Conversión" accent="emerald"
+          value={loading ? '…' : `${kpis?.conversion_pct ?? 0}%`}
+          sublabel="aceptadas / contactadas"
+          loading={loading}
+        />
+        <KpiCard
+          icon="💰" label="Valor potencial" accent="navy"
+          value={loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`}
+          sublabel={kpis?.elegibles_mt != null ? `${kpis.elegibles_mt} elegibles × S/ 22.3/mes` : 'mensual'}
+          loading={loading}
+        />
       </div>
 
       {/* Clientes / Asesores + Funnel */}
@@ -206,14 +226,25 @@ export default function Dashboard() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-navy-900 dark:text-white">{c.name}</p>
                       <p className="truncate font-mono text-xs text-slate-400">
-                        {c.id} · {c.district || 'Sin distrito'}
+                        {c.id} · {c.district || 'Sin distrito'} · {c.plan_actual || '—'}
                       </p>
+                      {c.top_offer && (
+                        <p className="mt-0.5 truncate text-[11px] text-cyan-600 dark:text-cyan-400">
+                          → {c.top_offer}
+                          {c.motivo && !['Elegible MT', 'Elegible upgrade', 'Elegible equipo', 'Elegible Plan Hogar'].includes(c.motivo)
+                            ? ` · por ${c.motivo}`
+                            : ''}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {c.elegible && (
-                      <span className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300">
-                        Elegible
+                      <span
+                        className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"
+                        title="Elegible para Movistar Total"
+                      >
+                        Elegible MT
                       </span>
                     )}
                     <ScoreBadge value={c.score} />

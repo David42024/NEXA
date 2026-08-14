@@ -28,13 +28,39 @@ def _is_elegible(profile: dict) -> bool:
     return bool(profile.get("elegibilidad", {}).get("movistar_total"))
 
 
-def _nbo_probability(client: models.Client) -> int:
-    """Probabilidad (%) de la mejor oferta del cliente, calculada por el motor NBO."""
+def _plan_actual(profile: dict) -> str | None:
+    """Plan móvil vigente del cliente (ej. 'Plan 69')."""
+    return profile.get("servicio", {}).get("plan")
+
+
+REASON_LABELS = {
+    "elegibilidad_mt": "Elegible MT",
+    "consumo_datos": "Alto consumo de datos",
+    "internet_hogar": "Internet en hogar",
+    "sin_internet_hogar": "Sin internet en hogar",
+    "elegibilidad_upgrade": "Elegible upgrade",
+    "elegibilidad_equipo": "Elegible equipo",
+    "elegibilidad_hogar": "Elegible Plan Hogar",
+    "antiguedad": "Cliente antiguo",
+    "satisfaccion": "Buena satisfacción",
+    "app_uso": "Alto uso de app",
+}
+
+
+def _nbo_top(client: models.Client):
+    """Score (%) + oferta sugerida + motivo del cliente según el motor NBO.
+
+    El "motivo" es el driver SHAP positivo más fuerte (el porqué de la
+    recomendación), para que el asesor entienda el ranking de un vistazo.
+    """
     recs = get_recommendations_for_client(client.id, client.profile)
     top = recs.get("recomendaciones", [])
     if not top:
-        return 0
-    return round(top[0]["probabilidad"] * 100)
+        return 0, None, None
+    shap = top[0].get("shap_values") or {}
+    mejor = max(shap, key=shap.get) if shap else None
+    motivo = REASON_LABELS.get(mejor) if mejor else None
+    return round(top[0]["probabilidad"] * 100), top[0]["offer_name"], motivo
 
 
 @router.get("/search", response_model=schemas.ClientSearchResult)
@@ -60,16 +86,19 @@ def search_clients(
         )
     ).limit(10)
     results = query.all()
-    scored = [
-        schemas.ClientSummary(
+    scored = []
+    for c in results:
+        score, top_offer, motivo = _nbo_top(c)
+        scored.append(schemas.ClientSummary(
             id=c.id,
             name=c.name,
             district=c.district,
             elegible=_is_elegible(c.profile),
-            score=_nbo_probability(c),
-        )
-        for c in results
-    ]
+            score=score,
+            top_offer=top_offer,
+            motivo=motivo,
+            plan_actual=_plan_actual(c.profile),
+        ))
     # El orden ES la recomendacion para el asesor: priorizar por score descendente.
     scored.sort(key=lambda s: s.score, reverse=True)
     return schemas.ClientSearchResult(
@@ -92,16 +121,19 @@ def list_clients(
     de mayor probabilidad aparece primero.
     """
     clients = db.query(models.Client).order_by(models.Client.id).all()
-    scored = [
-        schemas.ClientSummary(
+    scored = []
+    for c in clients:
+        score, top_offer, motivo = _nbo_top(c)
+        scored.append(schemas.ClientSummary(
             id=c.id,
             name=c.name,
             district=c.district,
             elegible=_is_elegible(c.profile),
-            score=_nbo_probability(c),
-        )
-        for c in clients
-    ]
+            score=score,
+            top_offer=top_offer,
+            motivo=motivo,
+            plan_actual=_plan_actual(c.profile),
+        ))
     scored.sort(key=lambda s: s.score, reverse=True)
     total = len(scored)
     start = (page - 1) * page_size
