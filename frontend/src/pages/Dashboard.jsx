@@ -81,6 +81,42 @@ function AsesoresSkeleton() {
   )
 }
 
+function MetaRow({ label, ventas, meta, pct, falta }) {
+  const cumplida = ventas >= meta
+  const pctClamped = Math.min(pct, 100)
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <p className="text-xs font-medium text-slate-500 dark:text-slate-400">{label}</p>
+        {cumplida && (
+          <span className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
+            ✓ Meta cumplida
+          </span>
+        )}
+      </div>
+      <p className="font-display text-3xl font-bold text-navy-900 dark:text-white">
+        {ventas}
+        <span className="ml-2 text-sm font-medium text-slate-400">de {meta} ventas</span>
+      </p>
+      <div className="mt-2 flex items-center gap-2">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${
+              cumplida ? 'from-emerald-400 to-green-500' : 'from-cyan-400 to-sky-500'
+            }`}
+            style={{ width: `${pctClamped}%`, transition: 'width 0.6s ease' }}
+          />
+        </div>
+        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{pctClamped}%</span>
+      </div>
+      <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+        Te faltan <span className="font-medium text-navy-800 dark:text-white">{Math.max(meta - ventas, 0)}</span>{' '}
+        ventas para cumplir la meta {falta}.
+      </p>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -90,6 +126,7 @@ export default function Dashboard() {
   const [clients, setClients] = useState([])
   const [asesores, setAsesores] = useState(null)
   const [asesoresMeta, setAsesoresMeta] = useState(4)
+  const [progreso, setProgreso] = useState(null)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [clientsError, setClientsError] = useState(false)
@@ -105,12 +142,16 @@ export default function Dashboard() {
         const asesoresRes = isAsesor
           ? Promise.resolve({ data: null })
           : api.get('/api/admin/asesores').catch(() => null)
+        const progresoRes = isAsesor
+          ? api.get('/api/asesor/progreso').catch(() => null)
+          : Promise.resolve({ data: null })
         const clientsRes = api.get('/api/clients/search?q=C0').catch(() => null)
-        const [k, f, a, c] = await Promise.all([kpiRes, funnelRes, asesoresRes, clientsRes])
+        const [k, f, a, p, c] = await Promise.all([kpiRes, funnelRes, asesoresRes, progresoRes, clientsRes])
         setKpis(k.data)
         setFunnel(f.data)
         setAsesores(a?.data?.asesores || null)
-        setAsesoresMeta(a?.data?.meta_ventas ?? 4)
+        setAsesoresMeta(a?.data?.meta_ventas ?? 60)
+        setProgreso(p?.data || null)
         setClients(c?.data?.results?.slice(0, 6) || [])
         setClientsError(!c)
       } finally {
@@ -125,7 +166,7 @@ export default function Dashboard() {
     if (query.trim()) navigate(`/clientes?q=${encodeURIComponent(query.trim())}`)
   }
 
-  const card = 'rounded-2xl border border-slate-200/80 bg-white p-6 transition-colors duration-200 dark:border-white/5 dark:bg-navy-800/60'
+  const card = 'rounded-2xl border border-black/60 bg-white p-6 transition-colors duration-200 dark:border-white/60 dark:bg-navy-800/60'
 
   return (
     <div className="space-y-6">
@@ -191,8 +232,9 @@ export default function Dashboard() {
       {/* Clientes / Asesores + Funnel */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {isAsesor ? (
-        /* Clientes priorizados (vista asesor) */
-        <section className={`animate-nexa-rise ${card} lg:col-span-3`}>
+        <>
+        {/* Clientes priorizados (vista asesor) */}
+        <section className={`animate-nexa-rise ${card} lg:col-span-2`}>
           <div className="mb-4 flex items-center justify-between">
             <p className="label-eyebrow">Clientes priorizados</p>
             <button
@@ -228,6 +270,11 @@ export default function Dashboard() {
                       <p className="truncate font-mono text-xs text-slate-400">
                         {c.id} · {c.district || 'Sin distrito'} · {c.plan_actual || '—'}
                       </p>
+                      {c.mejor_hora && (
+                        <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
+                          🕒 Mejor hora {c.mejor_hora}
+                        </p>
+                      )}
                       {c.top_offer && (
                         <p className="mt-0.5 truncate text-[11px] text-cyan-600 dark:text-cyan-400">
                           → {c.top_offer}
@@ -239,6 +286,14 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    {c.llamable_ahora && (
+                      <span
+                        className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
+                        title="Su mejor hora de atención incluye el horario actual"
+                      >
+                        Llamable ahora
+                      </span>
+                    )}
                     {c.elegible && (
                       <span
                         className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"
@@ -257,6 +312,48 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+
+        {/* Mis metas (vista asesor): diaria, semanal y mensual vs config del admin */}
+        <section className={`animate-nexa-rise ${card} [animation-delay:60ms]`}>
+          <div className="mb-4">
+            <p className="label-eyebrow">Mis metas</p>
+          </div>
+
+          {loading || !progreso ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-10 w-24 rounded bg-slate-200 dark:bg-navy-700" />
+              <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-navy-700" />
+              <div className="h-3 w-2/3 rounded bg-slate-200 dark:bg-navy-700" />
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <MetaRow
+                label="Hoy"
+                ventas={progreso.ventas_dia}
+                meta={progreso.meta_diaria}
+                pct={progreso.progreso_dia_pct}
+                falta="de hoy"
+              />
+              <div className="border-t border-slate-100 dark:border-white/5" />
+              <MetaRow
+                label="Esta semana"
+                ventas={progreso.ventas_semana}
+                meta={progreso.meta_semanal}
+                pct={progreso.progreso_semana_pct}
+                falta="de esta semana"
+              />
+              <div className="border-t border-slate-100 dark:border-white/5" />
+              <MetaRow
+                label="Este mes"
+                ventas={progreso.ventas_mes}
+                meta={progreso.meta_mensual}
+                pct={progreso.progreso_mes_pct}
+                falta="de este mes"
+              />
+            </div>
+          )}
+        </section>
+        </>
         ) : (
         /* Desempeño de asesores (vista supervisor/admin) */
         <section className={`animate-nexa-rise ${card} lg:col-span-2`}>

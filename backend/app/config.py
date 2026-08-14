@@ -4,8 +4,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _normalize_db_url(url: str) -> str:
+    """Normaliza la URL de la base de datos para SQLAlchemy con psycopg2.
+
+    Supabase entrega `postgres://` o `postgresql://`; SQLAlchemy necesita el
+    driver explícito (`postgresql+psycopg2://`). SQLite se usa tal cual.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg2://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://"):]
+    return url
+
+
 class Settings:
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./nexa.db")
+    DATABASE_URL: str = _normalize_db_url(os.getenv("DATABASE_URL", "sqlite:///./nexa.db"))
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change_this_secret_in_production")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", 8))

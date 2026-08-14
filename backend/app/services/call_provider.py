@@ -66,7 +66,7 @@ def _offering_out(offering):
         "channel": offering.channel,
         "stage": offering.stage,
         "contact_status": offering.contact_status,
-        "objection_handled": offering.objection_handled,
+        "objection_status": offering.objection_status,
         "evidence_type": offering.evidence_type,
         "evidence_ref": offering.evidence_ref,
         "result": offering.result,
@@ -90,7 +90,7 @@ class CallSession:
         self.state = "dialing"  # dialing | active | ended
         self.started_at = None
         self.ended_at = None
-        self.last_ai_at = 0.0
+        self.last_ai_at = {}  # cooldown por hablante (cliente / asesor)
 
 
 class P2PWebRTCProvider:
@@ -163,22 +163,50 @@ class P2PWebRTCProvider:
                 sess.pending_candidates.append({"role": role, "candidate": cand})
             else:
                 await self._send(other, {"type": "candidate", "candidate": cand})
-        elif kind == "stt" and role == "cliente":
+        elif kind == "stt":
             text = (msg.get("text") or "").strip()
+            speaker = msg.get("speaker") or "cliente"
             if not text:
                 return
-            # Reenvio en crudo (transcripcion en vivo) y deteccion de objecion.
-            await self._send(sess.asesor_ws, {"type": "stt", "speaker": "cliente", "text": text})
+            # Transcripcion en vivo de ambos lados hacia el panel del asesor.
+            await self._send(sess.asesor_ws, {"type": "stt", "speaker": speaker, "text": text})
             if msg.get("final"):
-                asyncio.create_task(self._run_copilot(sess, text, db))
+                asyncio.create_task(self._run_copilot(sess, text, speaker, db))
         elif kind == "end":
             await self.end(sess, reason=msg.get("reason") or "ended", db=db)
 
-    async def _run_copilot(self, sess, text, db=None):
+    async def _run_copilot(self, sess, text, speaker="cliente", db=None):
         now = time.time()
-        if now - sess.last_ai_at < settings.CALL_AI_COOLDOWN_SECONDS:
+        if now - sess.last_ai_at.get(speaker, 0) < settings.CALL_AI_COOLDOWN_SECONDS:
             return
-        sess.last_ai_at = now
+        sess.last_ai_at[speaker] = now
+
+        if speaker == "asesor":
+            # El copilot tambien escucha al asesor: revisa si aplico bien el
+            # argumento/pitch y sugiere como mejorar la respuesta.
+            prompt = (
+                f"El asesor acaba de decir: \"{text}\". Analiza si aplico bien su "
+                "pitch o argumento (menciono ahorro/beneficio/cierre). Si aplica, "
+                "dalo por bueno y corto. Si puede mejorar, sugiere una alternativa "
+                "accionable (max 4 frases). Si parece una pregunta del cliente, "
+                "propone la respuesta."
+            )
+            try:
+                result = await chat_engine.generate_nexabot_reply(sess.ctx, prompt)
+            except Exception:
+                result = {"reply": "", "source": "local"}
+            await self._send(sess.asesor_ws, {
+                "type": "copilot",
+                "speaker": "asesor",
+                "objection": None,
+                "quote": text,
+                "suggestion": result["reply"],
+                "source": result["source"],
+                "offering": None,
+            })
+            return
+
+        # Voz del cliente: deteccion de objecion + sugerencia para el asesor.
         objection = classify_objection(text)
         prompt = (
             f"El cliente acaba de decir: \"{text}\". Detecta su objecion y redacta una "
@@ -197,7 +225,7 @@ class P2PWebRTCProvider:
                 offering = db.query(models.Offering).filter(models.Offering.id == sess.offering_id).first()
                 if offering and offering.stage not in ("result",):
                     offering.stage = "objection"
-                    offering.objection_handled = True
+                    offering.objection_status = "rebate"
                     offering.speech_rebate = result["reply"][:500] or offering.speech_rebate
                     db.commit()
                     db.refresh(offering)
@@ -207,6 +235,7 @@ class P2PWebRTCProvider:
 
         await self._send(sess.asesor_ws, {
             "type": "copilot",
+            "speaker": "cliente",
             "objection": objection,
             "quote": text,
             "suggestion": result["reply"],
@@ -220,13 +249,13 @@ class P2PWebRTCProvider:
         sess.state = "ended"
         sess.ended_at = time.time()
 
-        # E2E en tiempo real: al cerrar una llamada atendida -> evidencia (audio).
+        # E2E en tiempo real: al cerrar una llamada atendida se registra el audio
+        # como medio probatorio (la etapa "evidencia" ya no es un paso manual).
         offering = None
         if db is not None and sess.started_at:
             try:
                 offering = db.query(models.Offering).filter(models.Offering.id == sess.offering_id).first()
                 if offering and offering.stage != "result":
-                    offering.stage = "evidence"
                     offering.evidence_type = "call_audio"
                     offering.evidence_ref = sess.id
                     db.commit()

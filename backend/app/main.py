@@ -9,8 +9,9 @@ from sqlalchemy import inspect
 
 from app.config import settings
 from app.database import engine, SessionLocal
-from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls
+from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor
 from app.services.config_service import ensure_default_config
+from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas
 
 logging.basicConfig(level=logging.INFO)
 
@@ -42,6 +43,45 @@ def _init_config():
 
 
 _init_config()
+
+
+def _backfill_reclamos():
+    """Agrega el historial de reclamos (fecha/motivo) a perfiles sembrados antes
+    de que existiera ese campo. Idempotente; en tests (SQLite en memoria sin
+    tablas) no hace nada.
+    """
+    if not inspect(engine).has_table("clients"):
+        return
+    db = SessionLocal()
+    try:
+        n = backfill_reclamos(db)
+        if n:
+            logging.info("Backfill de historial de reclamos: %d cliente(s) actualizado(s)", n)
+    finally:
+        db.close()
+
+
+def _backfill_comportamiento():
+    """Normaliza canales legacy (Digital/Call Center/Tienda) a los medios de
+    contacto reales (WhatsApp/Llamada/App) y agrega el plan objetivo de cada
+    campana del timeline. Idempotente.
+    """
+    if not inspect(engine).has_table("clients"):
+        return
+    db = SessionLocal()
+    try:
+        n1 = backfill_canales(db)
+        if n1:
+            logging.info("Backfill de canales: %d cliente(s) actualizado(s)", n1)
+        n2 = backfill_campania_ofertas(db)
+        if n2:
+            logging.info("Backfill de ofertas por campana: %d cliente(s) actualizado(s)", n2)
+    finally:
+        db.close()
+
+
+_backfill_reclamos()
+_backfill_comportamiento()
 
 app = FastAPI(
     title="NEXA API",
@@ -88,6 +128,7 @@ app.include_router(e2e.router)
 app.include_router(live.router)
 app.include_router(nexabot.router)
 app.include_router(calls.router)
+app.include_router(asesor.router)
 app.include_router(admin.router)
 
 

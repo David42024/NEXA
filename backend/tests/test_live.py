@@ -65,7 +65,6 @@ def test_ws_stream_avanza_etapas_y_registra_resultado(client, session):
     assert stages, "El stream no emitió eventos"
     assert "planned" in stages or "contacted" in stages
     assert "objection" in stages
-    assert "evidence" in stages
     assert "result" in stages
     assert result in ("accepted", "rejected")
 
@@ -74,7 +73,7 @@ def test_ws_stream_avanza_etapas_y_registra_resultado(client, session):
     assert offering.stage == "result"
     assert offering.result == result
     assert offering.contact_status == "answered"
-    assert offering.objection_handled is True
+    assert offering.objection_status == "rebate"
     assert offering.evidence_type == "platform_register"
 
     # La interacción se registró y el funnel del día sumó el ofrecimiento

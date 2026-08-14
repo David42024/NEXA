@@ -31,6 +31,38 @@ async function createPeer(stream, onCandidate) {
   return pc
 }
 
+/**
+ * Transcribe la voz del dispositivo (Web Speech API) y la etiqueta por hablante.
+ * El copilot del backend escucha al cliente (objeciones) y al asesor (pitch).
+ * Devuelve la instancia para poder detenerla; null si el navegador no soporta STT
+ * (p.ej. iOS/Safari), donde la llamada funciona igual sin transcripcion.
+ */
+function createSTT(ws, speaker, isActive) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition
+  if (!SR) return null
+  const rec = new SR()
+  rec.lang = 'es-PE'
+  rec.continuous = true
+  rec.interimResults = true
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i += 1) {
+      const result = e.results[i]
+      const text = result[0].transcript.trim()
+      if (!text) continue
+      ws.send(JSON.stringify({ type: 'stt', speaker, text, final: result.isFinal }))
+    }
+  }
+  rec.onerror = () => {}
+  rec.onend = () => {
+    // La transcripcion no debe cortar la llamada; solo reinicia.
+    if (isActive()) {
+      try { rec.start() } catch { /* transcribiendo */ }
+    }
+  }
+  rec.start()
+  return rec
+}
+
 function useTimer() {
   const [duration, setDuration] = useState(0)
   const timerRef = useRef(null)
@@ -71,6 +103,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
 
   const wsRef = useRef(null)
   const pcRef = useRef(null)
+  const recRef = useRef(null)
   const phaseRef = useRef('idle')
   const endedRef = useRef(false)
 
@@ -79,9 +112,19 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     setPhase(value)
   }
 
+  function stopSTT() {
+    if (recRef.current) {
+      recRef.current.onresult = null
+      recRef.current.onend = null
+      recRef.current.stop()
+      recRef.current = null
+    }
+  }
+
   const cleanup = useCallback(() => {
     stopTimer()
     stopStream()
+    stopSTT()
     pcRef.current?.close()
     pcRef.current = null
   }, [stopTimer, stopStream])
@@ -132,13 +175,18 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
         const msg = JSON.parse(ev.data)
         // El offering E2E se actualiza en tiempo real con cada evento.
         if (msg.offering) onOffering?.(msg.offering)
-        if (msg.type === 'status' && msg.state === 'active') {
+        if (msg.type === 'stt') {
+          // Transcripcion en vivo del cliente (y eco del asesor) para el panel.
+          onCopilotEvent?.({ ...msg, type: 'stt' })
+        } else if (msg.type === 'status' && msg.state === 'active') {
           setPhaseAll('active')
           startTimer()
+          startSTT()
         } else if (msg.type === 'answer' && msg.sdp) {
           await pcRef.current?.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
           setPhaseAll('active')
           startTimer()
+          startSTT()
         } else if (msg.type === 'candidate') {
           try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
         } else if (msg.type === 'copilot') {
@@ -165,6 +213,10 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
       setError(e.response?.data?.detail || 'No se pudo iniciar la llamada.')
       setPhaseAll('idle')
     }
+  }
+
+  function startSTT() {
+    recRef.current = createSTT(wsRef.current, 'asesor', () => phaseRef.current === 'active')
   }
 
   function toggleMute() {
@@ -234,29 +286,7 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   }
 
   function startSTT(ws) {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!SR) return
-    const rec = new SR()
-    recRef.current = rec
-    rec.lang = 'es-PE'
-    rec.continuous = true
-    rec.interimResults = true
-    rec.onresult = (e) => {
-      for (let i = e.resultIndex; i < e.results.length; i += 1) {
-        const result = e.results[i]
-        const text = result[0].transcript.trim()
-        if (!text) continue
-        ws.send(JSON.stringify({ type: 'stt', text, final: result.isFinal }))
-      }
-    }
-    rec.onerror = () => {}
-    rec.onend = () => {
-      // La transcripcion no debe cortar la llamada; solo reinicia.
-      if (phaseRef.current === 'active') {
-        try { rec.start() } catch { /* transcribiendo */ }
-      }
-    }
-    rec.start()
+    recRef.current = createSTT(ws, 'cliente', () => phaseRef.current === 'active')
   }
 
   async function answer() {

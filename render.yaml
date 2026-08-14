@@ -1,0 +1,33 @@
+# Render Blueprint — backend FastAPI (soporta WebSockets para la llamada en vivo).
+# Frontend se despliega en Vercel; base de datos en Supabase (PostgreSQL).
+#
+# Uso: sube este repo a GitHub y crea un Blueprint en Render apuntando a
+# `render.yaml`, o crea un Web Service manual con rootDir=backend.
+services:
+  - type: web
+    name: nexa-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: alembic upgrade head && python -c "from app.seed_data import seed; seed()" && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      # En Supabase: Settings > Database > Connection string (URI). Usa la de
+      # "Transaction pooler" (puerto 6543) o la directa (5432). Agrega
+      # ?sslmode=require. Ej:
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require
+      - key: DATABASE_URL
+        sync: false
+      # Origen del frontend en Vercel, separado por coma (sin "*" en produccion).
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: GROK_API_KEY
+        sync: false
+      - key: FALLBACK_API_KEY
+        sync: false

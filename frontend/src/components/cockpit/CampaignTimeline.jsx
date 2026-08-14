@@ -21,6 +21,7 @@ export default function CampaignTimeline({ campanias, topOffer }) {
     date: formatDate(c.fecha),
     stage: c.etapa,
     resultado: c.resultado,
+    oferta: c.oferta,
     kind: 'past',
   }))
   nodes.push({
@@ -51,6 +52,11 @@ export default function CampaignTimeline({ campanias, topOffer }) {
                   </span>
                 ) : (
                   <span className="text-[12px] font-semibold text-slate-700 dark:text-white/80">{n.label}</span>
+                )}
+                {n.kind === 'past' && n.oferta && (
+                  <p className="mt-1 truncate text-[11px] font-medium text-cyan-600 dark:text-cyan-300">
+                    Oferta: {n.oferta}
+                  </p>
                 )}
               </div>
               <div className="mt-2.5 flex items-center">

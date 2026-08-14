@@ -117,6 +117,40 @@ def test_ws_stt_dispara_copilot(client, monkeypatch):
             assert "monto_facturado" in captured["ctx"], "El contexto del cliente alimenta al copilot"
 
 
+def test_ws_stt_del_asesor_genera_copilot_asesor(client, monkeypatch):
+    """La voz del asesor tambien alimenta al copilot (mejora del pitch/argumento)."""
+    captured = {}
+
+    async def fake_reply(ctx, message):
+        captured["message"] = message
+        return {"reply": "Buen cierre: refuerza el ahorro mensual.", "source": "groq"}
+    monkeypatch.setattr("app.services.call_provider.chat_engine.generate_nexabot_reply", fake_reply)
+
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            _recv_until(asesor_ws, "status")  # active
+            asesor_ws.send_json({
+                "type": "stt", "text": "le baja su factura a S/ 100", "speaker": "asesor", "final": True,
+            })
+
+            stt = _recv_until(asesor_ws, "stt")
+            assert stt["speaker"] == "asesor"
+            assert stt["text"] == "le baja su factura a S/ 100"
+
+            copilot = _recv_until(asesor_ws, "copilot")
+            assert copilot["speaker"] == "asesor"
+            assert copilot["objection"] is None
+            assert copilot["suggestion"]
+            assert "asesor acaba de decir" in captured["message"].lower()
+
+
 def test_ws_cierra_llamada_y_notifica(client):
     token, data = _start(client)
     call_id = data["call_id"]
@@ -155,24 +189,24 @@ def test_ws_avanza_e2e_en_tiempo_real(client, session, monkeypatch):
             assert status["offering"]["stage"] == "contacted"
             assert status["offering"]["contact_status"] == "answered"
 
-            # 2) El cliente objeta -> objection / objection_handled
+            # 2) El cliente objeta -> objection / objection_status
             cliente_ws.send_json({"type": "stt", "text": "me parece muy caro", "final": True})
             copilot = _recv_until(asesor_ws, "copilot")
             assert copilot["offering"]["stage"] == "objection"
-            assert copilot["offering"]["objection_handled"] is True
+            assert copilot["offering"]["objection_status"] == "rebate"
 
-            # 3) Se cuelga la llamada -> evidence (audio de llamada)
+            # 3) Se cuelga la llamada -> se registra el audio como medio probatorio
             asesor_ws.send_json({"type": "end", "reason": "accepted"})
             ended = _recv_until(asesor_ws, "ended")
-            assert ended["offering"]["stage"] == "evidence"
+            assert ended["offering"]["stage"] == "objection"
             assert ended["offering"]["evidence_type"] == "call_audio"
 
     # Persistido en BD
     offering = session.get(models.Offering, data["offering_id"])
-    assert offering.stage == "evidence"
+    assert offering.stage == "objection"
     assert offering.evidence_type == "call_audio"
     assert offering.contact_status == "answered"
-    assert offering.objection_handled is True
+    assert offering.objection_status == "rebate"
 
 
 def test_ws_rechaza_token_cliente_invalido(client):

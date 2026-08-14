@@ -20,7 +20,6 @@ const STAGE_TIPS_E2E = {
   planned: 'Se definió el canal de contacto (WhatsApp, Llamada o App) y el mensaje/speech a enviar.',
   contacted: 'Contactabilidad real: el cliente contestó, solo leyó o no respondió.',
   objection: 'El cliente planteó objeciones y el asesor las manejó (con o sin rebate).',
-  evidence: 'Se adjuntó evidencia del ofrecimiento: audio de llamada o registro en plataforma.',
   result: 'Cierre de venta: oferta aceptada o rechazada.',
 }
 const PCT_TIP = 'Porcentaje que representa este valor respecto a la etapa anterior. Menor a 100% = se pierden ofrecimientos entre etapas.'

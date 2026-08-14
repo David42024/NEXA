@@ -7,7 +7,7 @@ export default function RejectModal({ open, offerName, reason, onReason, onConfi
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+      <div className="w-full max-w-sm rounded-xl border border-black/60 bg-white p-6 shadow-lg dark:border-white/60 dark:bg-navy-800">
         <div className="mb-4 flex items-start justify-between">
           <div>
             <p className="font-display font-semibold text-navy-900 dark:text-white">¿Por qué rechazó la oferta?</p>

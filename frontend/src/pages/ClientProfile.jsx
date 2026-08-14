@@ -47,14 +47,14 @@ const NEXT_STEPS = [
 function ProfileSkeleton() {
   return (
     <div className="animate-pulse space-y-5">
-      <div className="h-28 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+      <div className="h-28 rounded-xl border border-black/60 bg-white dark:border-white/60 dark:bg-navy-800/60" />
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="space-y-5">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <div className="h-72 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
-            <div className="h-72 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+            <div className="h-72 rounded-xl border border-black/60 bg-white dark:border-white/60 dark:bg-navy-800/60" />
+            <div className="h-72 rounded-xl border border-black/60 bg-white dark:border-white/60 dark:bg-navy-800/60" />
           </div>
-          <div className="h-56 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+          <div className="h-56 rounded-xl border border-black/60 bg-white dark:border-white/60 dark:bg-navy-800/60" />
         </div>
         <div className="h-[620px] rounded-xl bg-navy-900/80" />
       </div>
@@ -73,7 +73,9 @@ export default function ClientProfile() {
 
   const [recs, setRecs] = useState(null)
   const [recWarning, setRecWarning] = useState(null)
+  const [progreso, setProgreso] = useState(null)
   const [recLoading, setRecLoading] = useState(false)
+  const [focusSale, setFocusSale] = useState(false)
 
   const [speechByOffer, setSpeechByOffer] = useState({})
   const [speechLoading, setSpeechLoading] = useState(null)
@@ -125,7 +127,7 @@ export default function ClientProfile() {
               if (o.channel) ch[o.offer_id] = o.channel
               if (o.contact_status) ct[o.offer_id] = o.contact_status
               if (o.evidence_type) ev[o.offer_id] = o.evidence_type
-              ob[o.offer_id] = o.objection_handled
+              if (o.objection_status) ob[o.offer_id] = o.objection_status
             })
             setE2eChannel(ch); setE2eContact(ct); setE2eEvidence(ev); setE2eObjection(ob)
           })
@@ -137,6 +139,7 @@ export default function ClientProfile() {
       }
     }
     load()
+    api.get('/api/asesor/progreso').then(({ data }) => setProgreso(data)).catch(() => null)
   }, [id])
 
   async function generateRecommendation() {
@@ -160,11 +163,11 @@ export default function ClientProfile() {
         razones: Object.keys(offer.shap_values || {}).slice(0, 3),
         beneficio: 'Ahorro y beneficios adicionales en tu plan',
         tono: 'Consultivo',
-        canal: 'Digital',
+        canal: 'App',
       })
       setSpeechByOffer((prev) => ({ ...prev, [offer.oferta]: data }))
       const firstVariant = data.variantes?.[0]?.texto
-      if (firstVariant) {
+      if (firstVariant && offer.offer_id) {
         await saveE2E(offer, {
           channel: e2eChannel[offer.offer_id] || 'Llamada',
           message_text: firstVariant,
@@ -188,7 +191,7 @@ export default function ClientProfile() {
       if (data.channel) setE2eChannel((prev) => ({ ...prev, [offer.offer_id]: data.channel }))
       if (data.contact_status) setE2eContact((prev) => ({ ...prev, [offer.offer_id]: data.contact_status }))
       if (data.evidence_type) setE2eEvidence((prev) => ({ ...prev, [offer.offer_id]: data.evidence_type }))
-      setE2eObjection((prev) => ({ ...prev, [offer.offer_id]: data.objection_handled }))
+      if (data.objection_status) setE2eObjection((prev) => ({ ...prev, [offer.offer_id]: data.objection_status }))
     } finally {
       setE2eSaving(null)
     }
@@ -202,7 +205,7 @@ export default function ClientProfile() {
 
   // ---- Llamada en vivo (WebRTC): el copilot detecta objeciones en tiempo real ----
   function handleCopilotEvent(event) {
-    setLiveCopilot((prev) => [...prev.slice(-4), { ...event, time: Date.now() }])
+    setLiveCopilot((prev) => [...prev.slice(-8), { ...event, time: Date.now() }])
   }
 
   // El backend avanza el E2E solo durante la llamada; aquí solo se refleja en vivo.
@@ -211,7 +214,7 @@ export default function ClientProfile() {
     if (offering.channel) setE2eChannel((prev) => ({ ...prev, [offering.offer_id]: offering.channel }))
     if (offering.contact_status) setE2eContact((prev) => ({ ...prev, [offering.offer_id]: offering.contact_status }))
     if (offering.evidence_type) setE2eEvidence((prev) => ({ ...prev, [offering.offer_id]: offering.evidence_type }))
-    setE2eObjection((prev) => ({ ...prev, [offering.offer_id]: offering.objection_handled }))
+    if (offering.objection_status) setE2eObjection((prev) => ({ ...prev, [offering.offer_id]: offering.objection_status }))
   }
 
   async function registerResult(offer, result, reason = null) {
@@ -221,7 +224,7 @@ export default function ClientProfile() {
         client_id: id,
         recommendation_id: null,
         offer_id: offer.offer_id,
-        channel: 'Digital',
+        channel: 'App',
         result,
         rejection_reason: reason,
         speech_used: speechByOffer[offer.oferta]?.variantes?.[0]?.texto || null,
@@ -279,7 +282,7 @@ export default function ClientProfile() {
 
   if (notFound) {
     return (
-      <div className="max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-navy-800/60">
+      <div className="max-w-lg rounded-xl border border-black/60 bg-white p-6 shadow-sm dark:border-white/60 dark:bg-navy-800/60">
         <p className="font-medium text-navy-900 dark:text-white">⚠️ No se encontró cliente con ese ID</p>
         <p className="mt-1 mb-4 text-sm text-slate-500">Verifique el ID o busque por nombre.</p>
         <button className="btn-secondary" onClick={() => navigate('/clientes')}>Volver a buscar</button>
@@ -293,6 +296,12 @@ export default function ClientProfile() {
   const topOffer = recs?.recomendaciones?.[0] || null
   const k = computeNboKpis(p, topOffer)
   const campanias = p.historial_campanias || []
+  const lastCampana = campanias[campanias.length - 1]
+  const copilotOffer =
+    topOffer ||
+    (lastCampana?.oferta
+      ? { oferta: lastCampana.oferta, probabilidad: 0.5, ahorro_pct: 0, shap_values: {}, offer_id: null }
+      : null)
 
   const status = topOffer ? registeredOffers[topOffer.oferta] : null
   const canGenerate = hasPermission('view_recommendation')
@@ -300,10 +309,22 @@ export default function ClientProfile() {
 
   return (
     <div>
-      <button onClick={() => navigate('/clientes')} className="mb-4 flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-cyan-600">
-        <ArrowLeft className="h-4 w-4" />
-        Volver a búsqueda
-      </button>
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <button onClick={() => navigate('/clientes')} className="flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-cyan-600">
+          <ArrowLeft className="h-4 w-4" />
+          Volver a búsqueda
+        </button>
+        {progreso && (
+          <div
+            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-500 dark:border-white/10 dark:bg-navy-800/60 dark:text-slate-400"
+            title="Ventas del día vs meta diaria configurada por el admin"
+          >
+            🎯 Meta diaria <span className="font-semibold text-navy-800 dark:text-white">{progreso.meta_diaria}</span>
+            <span className="mx-1">·</span>
+            hoy <span className="font-semibold text-navy-800 dark:text-white">{progreso.ventas_dia}</span>
+          </div>
+        )}
+      </div>
 
       <ClientHeader
         client={client}
@@ -346,17 +367,31 @@ export default function ClientProfile() {
               ahorro={k.ahorroMensual}
               ahorroPct={k.ahorroPct}
               offer={topOffer}
+              loading={recLoading}
+              onViewDetails={() => {
+                const el = document.getElementById('avance-venta')
+                el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                setFocusSale(true)
+                setTimeout(() => setFocusSale(false), 1800)
+              }}
             />
           </div>
 
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-navy-800/60">
+          <section
+            id="avance-venta"
+            className={`rounded-xl border bg-white p-5 shadow-sm dark:bg-navy-800/60 ${
+              focusSale
+                ? 'border-emerald-400 ring-4 ring-emerald-400/20 transition-all duration-700'
+                : 'border-black/60 dark:border-white/60'
+            }`}
+          >
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="label-eyebrow">Avance de la venta</p>
-                <p className="mt-0.5 text-xs text-slate-400">Seguimiento E2E del ofrecimiento</p>
+                <p className="mt-0.5 text-xs text-slate-400">Estado de cada intento de oferta al cliente</p>
               </div>
               {campanias.length > 0 && (
-                <span className="text-[11px] text-slate-400">Campañas previas · {campanias.length}</span>
+                <span className="text-[11px] text-slate-400">Intentos previos · {campanias.length}</span>
               )}
             </div>
             <CampaignTimeline campanias={campanias} topOffer={topOffer} />
@@ -391,8 +426,8 @@ export default function ClientProfile() {
           clientId={id}
           clientName={client.name}
           k={k}
-          topOffer={topOffer}
-          speech={topOffer ? speechByOffer[topOffer.oferta] : null}
+          topOffer={copilotOffer}
+          speech={copilotOffer ? speechByOffer[copilotOffer.oferta] : null}
           speechLoading={speechLoading}
           onGenerateSpeech={generateSpeech}
           copiedKey={copiedKey}
@@ -413,7 +448,7 @@ export default function ClientProfile() {
           onAccept={(offer) => registerResult(offer, 'accepted')}
           onOpenReject={(offer) => setRejectingOffer(offer.oferta)}
           evidence={topOffer ? e2eEvidence[topOffer.offer_id] : ''}
-          onEvidence={(offer, v) => saveE2E(offer, { evidence_type: v, stage: 'evidence' })}
+          onEvidence={(offer, v) => saveE2E(offer, { evidence_type: v })}
           saving={topOffer ? e2eSaving === topOffer.offer_id : false}
           canAccept={hasPermission('register_acceptance')}
           canReject={hasPermission('register_rejection')}
@@ -435,7 +470,7 @@ export default function ClientProfile() {
       {/* Modal feedback */}
       {feedbackModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+          <div className="w-full max-w-sm rounded-xl border border-black/60 bg-white p-6 shadow-lg dark:border-white/60 dark:bg-navy-800">
             <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">¿Por qué esta recomendación no es buena?</p>
             <p className="mb-4 text-xs text-slate-400">{feedbackModal}</p>
             <div className="mb-4 space-y-2">
@@ -473,7 +508,7 @@ export default function ClientProfile() {
       {/* Modal solicitar datos (post-llamada) */}
       {dataModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+          <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl border border-black/60 bg-white p-6 shadow-lg dark:border-white/60 dark:bg-navy-800">
             <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">Completar datos del cliente</p>
             <p className="mb-4 text-xs text-slate-400">
               {client.name} · {client.id} — la llamada terminó. Propón qué información falta para mejorar la recomendación.

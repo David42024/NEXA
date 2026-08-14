@@ -31,15 +31,23 @@ export default function ClientSearch() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [listLoading, setListLoading] = useState(false)
+  const [soloAhora, setSoloAhora] = useState(false)
+  const [progreso, setProgreso] = useState(null)
   const reqId = useRef(0)
   const navigate = useNavigate()
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
+  useEffect(() => {
+    api.get('/api/asesor/progreso').then(({ data }) => setProgreso(data)).catch(() => null)
+  }, [])
+
   async function loadList(p) {
     setListLoading(true)
     try {
-      const { data } = await api.get(`/api/clients?page=${p}&page_size=${PAGE_SIZE}`)
+      const { data } = await api.get(
+        `/api/clients?page=${p}&page_size=${PAGE_SIZE}${soloAhora ? '&solo_ahora=true' : ''}`
+      )
       setList(data.results)
       setTotal(data.total)
       setPage(data.page)
@@ -52,7 +60,9 @@ export default function ClientSearch() {
     setLoading(true)
     setSearched(true)
     try {
-      const { data } = await api.get(`/api/clients/search?q=${encodeURIComponent(q.trim())}`)
+      const { data } = await api.get(
+        `/api/clients/search?q=${encodeURIComponent(q.trim())}${soloAhora ? '&solo_ahora=true' : ''}`
+      )
       return data
     } finally {
       setLoading(false)
@@ -81,7 +91,7 @@ export default function ClientSearch() {
     }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query])
+  }, [query, soloAhora])
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -117,8 +127,22 @@ export default function ClientSearch() {
 
   return (
     <div>
-      <p className="label-eyebrow">Clientes</p>
-      <h1 className="font-display font-bold text-2xl text-navy-900 mb-6">Buscar cliente</h1>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="label-eyebrow">Clientes</p>
+          <h1 className="font-display font-bold text-2xl text-navy-900 mb-6">Buscar cliente</h1>
+        </div>
+        {progreso && (
+          <div
+            className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-500 dark:border-white/10 dark:bg-navy-800/60 dark:text-slate-400"
+            title="Ventas del día vs meta diaria configurada por el admin"
+          >
+            🎯 Meta diaria <span className="font-semibold text-navy-800 dark:text-white">{progreso.meta_diaria}</span>
+            <span className="mx-1">·</span>
+            hoy <span className="font-semibold text-navy-800 dark:text-white">{progreso.ventas_dia}</span>
+          </div>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} className="flex gap-2 mb-2 max-w-xl">
         <input
@@ -138,6 +162,20 @@ export default function ClientSearch() {
       {validationError && (
         <p className="text-sm text-rose-600 mb-4" role="alert">{validationError}</p>
       )}
+
+      <button
+        onClick={() => setSoloAhora((v) => !v)}
+        aria-pressed={soloAhora}
+        className={`mb-3 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+          soloAhora
+            ? 'border-emerald-500/60 bg-emerald-500/10 text-emerald-600 dark:border-emerald-400/60 dark:text-emerald-300'
+            : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-white/10 dark:bg-navy-800/60 dark:text-slate-400'
+        }`}
+        title="Muestra solo clientes cuya mejor hora de atención incluye el horario actual"
+      >
+        <span className={`h-2 w-2 rounded-full ${soloAhora ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+        Solo llamables ahora
+      </button>
 
       {loading && <p className="text-sm text-slate-400">Buscando…</p>}
 
@@ -259,6 +297,11 @@ function ClientRow({ c, onSelect }) {
           <p className="text-xs text-slate-400 font-mono">
             {c.id} · {c.district} · Plan {c.plan_actual || '—'}
           </p>
+          {c.mejor_hora && (
+            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+              🕒 Mejor hora {c.mejor_hora}
+            </p>
+          )}
           {c.top_offer && (
             <p className="mt-0.5 text-[11px] text-cyan-600 dark:text-cyan-400">
               → {c.top_offer}
@@ -268,6 +311,14 @@ function ClientRow({ c, onSelect }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {c.llamable_ahora && (
+          <span
+            className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
+            title="Su mejor hora de atención incluye el horario actual"
+          >
+            Llamable ahora
+          </span>
+        )}
         {c.elegible && (
           <span
             className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"

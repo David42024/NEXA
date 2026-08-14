@@ -125,6 +125,46 @@ def compute_commercial_score(probabilidad: float, arpu_gain: float, priority: in
     return round(score, 4)
 
 
+def _build_fallback(profile: Dict[str, Any]) -> Dict[str, Any]:
+    """Oferta de respaldo para clientes sin opción con probabilidad suficiente.
+
+    Garantiza que SIEMPRE haya algo que recomendar, por mínimo que sea: el asesor
+    ve el % (bajo), la oferta y el ahorro en lugar de un panel vacío. Reusa la
+    oferta de la campaña de retención más reciente si existe (es la que el cliente
+    ya conoce) y, si no, la de mayor prioridad del catálogo.
+    """
+    campañas = profile.get("historial_campanias") or []
+    oferta_nombre = None
+    for camp in reversed(campañas):
+        if camp.get("oferta"):
+            oferta_nombre = camp["oferta"]
+            break
+
+    offer = None
+    if oferta_nombre:
+        offer = next((o for o in OFFER_CATALOG if o["name"] == oferta_nombre), None)
+    if not offer:
+        offer = max(OFFER_CATALOG, key=lambda o: o["priority"])
+
+    signals = _feature_signals(profile)
+    prob = max(0.05, min(0.20, round(0.06 + 0.10 * signals["antiguedad"] + 0.05 * signals["consumo_datos"], 4)))
+    return {
+        "offer_code": offer["code"],
+        "offer_name": offer["name"],
+        "priority": offer["priority"],
+        "arpu_gain": offer["arpu_gain"],
+        "precio": offer["precio"],
+        "ahorro_pct": offer["ahorro_pct"],
+        "probabilidad": prob,
+        "shap_values": {
+            "antiguedad": round(0.10 * signals["antiguedad"], 3),
+            "consumo_datos": round(0.05 * signals["consumo_datos"], 3),
+        },
+        "score": compute_commercial_score(prob, offer["arpu_gain"], offer["priority"]),
+        "low_probability": True,
+    }
+
+
 def get_recommendations_for_client(
     client_id: str,
     profile: Dict[str, Any],
@@ -153,7 +193,10 @@ def get_recommendations_for_client(
 
     warning = None
     if not scored:
-        warning = "No hay ofertas elegibles con probabilidad suficiente para este cliente."
+        # Siempre se recomienda algo, por mínimo que sea: el panel muestra el %
+        # (bajo), la oferta de respaldo y el ahorro en vez de quedarse vacío.
+        scored = [_build_fallback(profile)]
+        warning = "⚠️ Sin ofertas con probabilidad suficiente; se muestra la mejor opción disponible."
     elif all(r["probabilidad"] < low_threshold for r in scored):
         warning = "⚠️ Baja probabilidad de aceptación. Considere estrategia alternativa."
         scored = scored[:2]  # mostrar top 2 con alerta

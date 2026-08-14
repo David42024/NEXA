@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 import re
+from datetime import datetime
 
 from app.database import get_db
 from app import models, schemas
@@ -13,6 +14,45 @@ router = APIRouter(prefix="/api/clients", tags=["clients"])
 
 # IDs de cliente NEXA con formato como "C00001" (letra + 4+ digitos)
 ID_PATTERN = re.compile(r"^[A-Za-z]\d{4,}$")
+
+# Hora local de Perú (sin horario de verano). Si no está disponible, usa la del servidor.
+try:
+    from zoneinfo import ZoneInfo
+    _TZ = ZoneInfo("America/Lima")
+except Exception:
+    _TZ = None
+
+
+def _mejor_hora(profile: dict) -> str | None:
+    """Franja de mejor hora de contacto ('08:00-12:00'), o None si no se conoce."""
+    consumo = profile.get("consumo") or {}
+    return consumo.get("mejor_franja_horaria_contacto") or consumo.get("horario_pico")
+
+
+def _now_hora() -> int:
+    """Minuto del día actual en la zona horaria de Perú."""
+    now = datetime.now(_TZ) if _TZ else datetime.now()
+    return now.hour * 60 + now.minute
+
+
+def _llamable_ahora(mejor_hora: str | None, now: int | None = None) -> bool:
+    """True si `now` cae dentro de la franja 'HH:MM-HH:MM' (cruza medianoche incluida)."""
+    if not mejor_hora or "-" not in mejor_hora:
+        return False
+    try:
+        start_s, end_s = [part.strip() for part in mejor_hora.split("-")]
+
+        def to_min(s):
+            h, m = s.split(":")
+            return int(h) * 60 + int(m)
+
+        start, end = to_min(start_s), to_min(end_s)
+    except Exception:
+        return False
+    t = now if now is not None else _now_hora()
+    if start <= end:
+        return start <= t <= end
+    return t >= start or t <= end
 
 
 def _has_missing_data(profile: dict) -> bool:
@@ -66,6 +106,7 @@ def _nbo_top(client: models.Client):
 @router.get("/search", response_model=schemas.ClientSearchResult)
 def search_clients(
     q: str = Query(..., min_length=1),
+    solo_ahora: bool = Query(False),
     db: Session = Depends(get_db),
     _user=Depends(require_any_permission("search_client", "view_all_clients")),
 ):
@@ -74,6 +115,8 @@ def search_clients(
     Devuelve flags para distinguir un match exacto por ID de meras sugerencias
     (spec 10.5): el frontend muestra un modal de confirmacion cuando el usuario
     teclea un ID que no existe exactamente pero hay coincidencias parciales.
+    Con `solo_ahora=true` filtra los clientes cuya mejor hora de contacto
+    incluye el momento actual (para que el call center llame solo cuando puede).
     """
     is_id_query = bool(ID_PATTERN.match(q))
     exact_match = db.query(models.Client.id).filter(models.Client.id == q).first() is not None
@@ -89,6 +132,7 @@ def search_clients(
     scored = []
     for c in results:
         score, top_offer, motivo = _nbo_top(c)
+        mejor_hora = _mejor_hora(c.profile)
         scored.append(schemas.ClientSummary(
             id=c.id,
             name=c.name,
@@ -98,9 +142,13 @@ def search_clients(
             top_offer=top_offer,
             motivo=motivo,
             plan_actual=_plan_actual(c.profile),
+            mejor_hora=mejor_hora,
+            llamable_ahora=_llamable_ahora(mejor_hora),
         ))
     # El orden ES la recomendacion para el asesor: priorizar por score descendente.
     scored.sort(key=lambda s: s.score, reverse=True)
+    if solo_ahora:
+        scored = [s for s in scored if s.llamable_ahora]
     return schemas.ClientSearchResult(
         results=scored,
         exact_match=exact_match,
@@ -112,18 +160,21 @@ def search_clients(
 def list_clients(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    solo_ahora: bool = Query(False),
     db: Session = Depends(get_db),
     _user=Depends(require_any_permission("search_client", "view_all_clients")),
 ):
     """Lista paginada de clientes ordenados por probabilidad NBO (descendente).
 
     El orden ES la recomendacion para el asesor: el cliente con la mejor oferta
-    de mayor probabilidad aparece primero.
+    de mayor probabilidad aparece primero. Con `solo_ahora=true` se limita a los
+    clientes cuya mejor hora de contacto incluye el momento actual.
     """
     clients = db.query(models.Client).order_by(models.Client.id).all()
     scored = []
     for c in clients:
         score, top_offer, motivo = _nbo_top(c)
+        mejor_hora = _mejor_hora(c.profile)
         scored.append(schemas.ClientSummary(
             id=c.id,
             name=c.name,
@@ -133,8 +184,12 @@ def list_clients(
             top_offer=top_offer,
             motivo=motivo,
             plan_actual=_plan_actual(c.profile),
+            mejor_hora=mejor_hora,
+            llamable_ahora=_llamable_ahora(mejor_hora),
         ))
     scored.sort(key=lambda s: s.score, reverse=True)
+    if solo_ahora:
+        scored = [s for s in scored if s.llamable_ahora]
     total = len(scored)
     start = (page - 1) * page_size
     items = scored[start:start + page_size]

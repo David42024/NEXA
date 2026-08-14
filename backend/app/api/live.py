@@ -214,7 +214,7 @@ async def _run_conversation(websocket: WebSocket, db: Session, sess: dict):
     await asyncio.sleep(delay)
 
     # 4) Objecion del cliente -> rebate manejado
-    offering.objection_handled = True
+    offering.objection_status = "rebate"
     offering.speech_rebate = "Argumento de unificación: un solo recibo y datos ilimitados."
     offering.stage = "objection"
     db.commit()
@@ -233,16 +233,10 @@ async def _run_conversation(websocket: WebSocket, db: Session, sess: dict):
     await emit({"type": "bot_message", "role": "bot", "message": rebate, "stage": "objection", "offering": offering_out()})
     await asyncio.sleep(delay)
 
-    # 5) Evidencia -> cierre
+    # 5) Registro del medio probatorio (metadata; ya no es una etapa del pipeline)
     offering.evidence_type = "platform_register"
-    offering.stage = "evidence"
     db.commit()
     db.refresh(offering)
-    await emit({
-        "type": "client_message", "role": "client",
-        "message": "Si me lo confirmas por escrito, me interesa. ¿Cuándo se activa?",
-        "stage": "evidence", "offering": offering_out(),
-    })
     await asyncio.sleep(delay)
 
     # 6) Resultado: aceptacion segun la probabilidad del motor NBO
@@ -261,6 +255,7 @@ async def _run_conversation(websocket: WebSocket, db: Session, sess: dict):
         rejection_reason=reason,
         speech_used=pitch,
     )
+    offering.stage = "result"
     db.commit()
     db.refresh(offering)
 

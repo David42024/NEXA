@@ -1,11 +1,10 @@
 import React from 'react'
-import { Check, ChevronRight } from 'lucide-react'
+import { Check, ChevronRight, ChevronLeft } from 'lucide-react'
 
 export const E2E_STAGES = [
   { key: 'planned', label: 'Canal' },
   { key: 'contacted', label: 'Contacto' },
   { key: 'objection', label: 'Objeciones' },
-  { key: 'evidence', label: 'Evidencia' },
   { key: 'result', label: 'Resultado' },
 ]
 
@@ -15,9 +14,9 @@ const CONTACT_OPTIONS = [
   ['read', 'Leyó'],
   ['unanswered', 'No respondió'],
 ]
-const EVIDENCE_OPTIONS = [
-  ['call_audio', 'Audio de llamada'],
-  ['platform_register', 'Registro en plataforma'],
+const OBJECTION_OPTIONS = [
+  ['none', 'No fue necesario'],
+  ['rebate', 'Usé speech de rebate'],
 ]
 
 const RESULT_BADGE = {
@@ -46,6 +45,7 @@ export default function E2ETracking({
   const raw = offering?.stage === 'classified' ? 'planned' : (offering?.stage || 'planned')
   const reachedIndex = Math.max(0, E2E_STAGES.findIndex((s) => s.key === raw))
   const current = E2E_STAGES[reachedIndex]
+  const prev = E2E_STAGES[reachedIndex - 1]
   const next = E2E_STAGES[reachedIndex + 1]
   const saving = e2eSaving === offer.offer_id
   const result = offering?.result
@@ -134,30 +134,14 @@ export default function E2ETracking({
 
         {/* Objeciones / rebate */}
         {current.key === 'objection' && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onSave({ objection_handled: !e2eObjection[offer.offer_id], stage: 'objection' })}
-            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
-              e2eObjection[offer.offer_id]
-                ? 'bg-emerald-500/10 border-emerald-400/40 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-300'
-                : 'bg-white border-slate-200 text-slate-600 dark:bg-white/5 dark:border-white/10 dark:text-white/70'
-            }`}
-          >
-            {e2eObjection[offer.offer_id] ? '✓ Usé speech de rebate' : 'Usé speech de rebate'}
-          </button>
-        )}
-
-        {/* Evidencia */}
-        {current.key === 'evidence' && (
           <div className="flex flex-wrap gap-2">
-            {EVIDENCE_OPTIONS.map(([v, label]) => (
+            {OBJECTION_OPTIONS.map(([v, label]) => (
               <button
                 key={v}
                 type="button"
                 disabled={saving}
-                onClick={() => onSave({ evidence_type: v, stage: 'evidence' })}
-                className={chip(e2eEvidence[offer.offer_id] === v)}
+                onClick={() => onSave({ objection_status: v, stage: 'objection' })}
+                className={chip(e2eObjection[offer.offer_id] === v)}
               >
                 {label}
               </button>
@@ -178,18 +162,31 @@ export default function E2ETracking({
           )
         )}
 
-        {/* Avanzar de etapa */}
-        {next && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onSave({ stage: next.key })}
-            className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
-          >
-            Siguiente: {next.label}
-            <ChevronRight className="h-3.5 w-3.5" />
-          </button>
-        )}
+        {/* Avanzar / retroceder de etapa */}
+        <div className="mt-3 flex items-center justify-between gap-2">
+          {prev && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => onSave({ stage: prev.key })}
+              className="flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Anterior: {prev.label}
+            </button>
+          )}
+          {next && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => onSave({ stage: next.key })}
+              className="ml-auto flex items-center gap-1 text-[11px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
+            >
+              Siguiente: {next.label}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -200,7 +197,6 @@ function i18nTitle(key) {
     planned: '¿Por qué canal vas a contactar?',
     contacted: '¿Cómo respondió el cliente?',
     objection: '¿Manejaste la objeción?',
-    evidence: '¿Qué medio probatorio dejas?',
     result: 'Resultado de la venta',
   }
   return titles[key] || 'Siguiente paso'

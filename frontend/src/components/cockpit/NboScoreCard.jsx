@@ -15,7 +15,7 @@ export default function NboScoreCard({ percent, tone, offer, shapValues }) {
   const data = [{ name: 'score', value: percent ?? 0 }]
 
   return (
-    <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 dark:bg-navy-800/60 dark:border-white/10">
+    <section className="bg-white rounded-xl border border-black/60 shadow-sm p-5 dark:bg-navy-800/60 dark:border-white/60">
       <div className="flex items-center justify-between">
         <p className="label-eyebrow">1. Scoring de Probabilidad NBO</p>
         <Target className="h-4 w-4 text-slate-300 dark:text-white/20" />
@@ -65,7 +65,10 @@ export default function NboScoreCard({ percent, tone, offer, shapValues }) {
 
       {shapValues && Object.keys(shapValues).length > 0 && (
         <div className="mt-4 pt-4 border-t border-slate-100 dark:border-white/10">
-          <p className="label-eyebrow mb-2">Por qué esta oferta</p>
+          <p className="label-eyebrow mb-1">Por qué esta oferta</p>
+          <p className="mb-2 text-xs text-slate-400">
+            Los factores que más aumentan la probabilidad de que acepte, y cuántos puntos suman.
+          </p>
           <ShapExplainability shapValues={shapValues} />
         </div>
       )}

@@ -11,6 +11,7 @@ from app.services.config_service import (
     get_thresholds,
     set_config_value,
     get_config,
+    get_metas,
     log_event,
 )
 
@@ -120,6 +121,43 @@ def update_admin_thresholds(
         "LOW_PROBABILITY_THRESHOLD": t["low"],
         "NOISE_PROBABILITY_THRESHOLD": t["noise"],
     }
+
+
+# ---------- Metas comerciales ----------
+@router.get("/metas")
+def get_admin_metas(db: Session = Depends(get_db), _user=Depends(require_permission("configure_thresholds"))):
+    ensure_default_config(db)
+    return get_metas(db)
+
+
+@router.put("/metas")
+def update_admin_metas(
+    payload: schemas.MetasUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("configure_thresholds")),
+):
+    ensure_default_config(db)
+    if payload.meta_diaria is not None:
+        if payload.meta_diaria < 1:
+            raise HTTPException(status_code=422, detail="La meta diaria debe ser al menos 1")
+        set_config_value(db, "META_VENTAS_DIARIA", payload.meta_diaria)
+    if payload.meta_semanal is not None:
+        if payload.meta_semanal < 1:
+            raise HTTPException(status_code=422, detail="La meta semanal debe ser al menos 1")
+        set_config_value(db, "META_VENTAS_SEMANAL", payload.meta_semanal)
+    if payload.meta_mensual is not None:
+        if payload.meta_mensual < 1:
+            raise HTTPException(status_code=422, detail="La meta mensual debe ser al menos 1")
+        set_config_value(db, "META_VENTAS_MENSUAL", payload.meta_mensual)
+    metas = get_metas(db)
+    log_event(
+        db, "meta_change",
+        f"Metas actualizadas: diaria={metas['META_VENTAS_DIARIA']}, semanal={metas['META_VENTAS_SEMANAL']}, "
+        f"mensual={metas['META_VENTAS_MENSUAL']}",
+        current_user.id,
+    )
+    db.commit()
+    return {"detail": "Metas actualizadas", **metas}
 
 
 # ---------- Logs del sistema ----------

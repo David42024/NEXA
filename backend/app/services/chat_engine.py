@@ -87,12 +87,13 @@ def _context_text(ctx: Dict) -> str:
 
 def _build_prompt(ctx: Dict, message: str) -> str:
     return (
-        "Eres Nexabot, asistente de asesores comerciales de Movistar. Ayudas en tiempo real "
-        "con objeciones y argumentos de venta. Responde en espanol neutro, en maximo 5 frases, "
-        "con un argumento concreto, accionable y numerico. Si el asesor pide un speech, "
-        "escribelo como texto entre comillas. Contexto del cliente:\n"
+        "Eres Nexabot, asistente comercial de Movistar. Responde cualquier consulta del asesor: "
+        "objeciones, argumentos de venta, planes, tarifas, cobertura, portabilidad, reclamos o dudas "
+        "generales que el asesor no sepa. Responde en espanol neutro, CONCISO: 1-2 frases, directo al punto, "
+        "con datos numericos si aplica. Si el asesor pide un speech, escribelo entre comillas. "
+        "Contexto del cliente:\n"
         f"{_context_text(ctx)}\n"
-        f"Pregunta u objecion del asesor: \"{message}\""
+        f"Pregunta del asesor: \"{message}\""
     )
 
 
@@ -106,7 +107,7 @@ async def _call_groq(prompt: str) -> str:
             json={
                 "model": settings.GROQ_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": 260,
+                "max_tokens": 160,
                 "temperature": 0.6,
             },
         )
@@ -139,39 +140,47 @@ def _local_reply(ctx: Dict, message: str) -> str:
     if any(w in msg for w in ("caro", "precio", "cost", "presupuesto", "no me conviene")):
         if ctx.get("oferta") and ahorro is not None and ctx.get("precio") is not None:
             return (
-                f"Entiendo, {nombre}. Hoy pagas S/ {monto:.2f} y con {ctx['oferta']} "
-                f"pasarías a S/ {ctx['precio']:.2f} al mes: {ahorro:.2f} soles de ahorro. "
-                "Es un argumento concreto que puedes usar: pregúntale cuánto paga hoy y contrasta la diferencia."
+                f"{nombre}, hoy paga S/ {monto:.2f} y con {ctx['oferta']} pasa a S/ {ctx['precio']:.2f}: "
+                f"{ahorro:.2f} soles de ahorro al mes. Pregúntale cuánto paga hoy y contrasta la diferencia."
             )
         return (
-            f"Si menciona precio, {nombre}, enfócate en el ahorro mensual y en que la oferta "
-            "se ajusta a su consumo real, no en el costo absoluto. Cierra con: '¿Qué opinas si te muestro cuánto ahorrarías?'"
+            f"Si menciona precio, {nombre}, enfócate en el ahorro mensual, no en el costo absoluto. "
+            "Cierra con: '¿Qué opinas si te muestro cuánto ahorrarías?'"
         )
     if any(w in msg for w in ("otro operador", "competencia", "claro", "entel", "bitel", "otra empresa")):
         return (
-            f"Contra la competencia, {nombre}, destaca el beneficio acumulado: con esta oferta "
-            "ahorra y mantiene su número sin cambiar de operador. Pregunta qué le ofrecen y contrasta solo con datos propios."
+            f"Destaca el beneficio acumulado, {nombre}: con esta oferta ahorra sin cambiar de operador. "
+            "Pregunta qué le ofrecen y contrasta solo con datos propios."
         )
     if any(w in msg for w in ("no necesita", "no interesa", "no quiere", "molesta")):
         return (
-            f"Si no muestra interés, {nombre}, no fuerces: valida su situación actual y plantea "
-            "la oferta como opción futura. Cierra con una pregunta abierta: '¿Qué es lo que más valora de su plan hoy?'"
+            f"No fuerces, {nombre}: valida su situación actual y plantea la oferta como opción futura. "
+            "Cierra con: '¿Qué es lo que más valora de su plan hoy?'"
         )
     if any(w in msg for w in ("reclamo", "queja", "problema", "mala señal", "atencion")):
         return (
-            f"Con {ctx['n_reclamos']} reclamo(s) previo(s), {nombre}, primero reconoce el problema, "
-            "agradece su permanencia y usa la oferta como gesto comercial para compensar la experiencia. "
-            "Nunca lo niegues ni lo minimices."
+            f"Con {ctx['n_reclamos']} reclamo(s) previo(s), {nombre}, primero reconoce el problema y "
+            "agradece su permanencia. Usa la oferta como gesto comercial; nunca lo minimices."
+        )
+    if any(w in msg for w in ("portabilidad", "cambiar de operador", "cambio de operador", "mismo numero", "mismo número")):
+        return (
+            "La portabilidad conserva el número al cambiar de operador y tarda de 1 a 2 días hábiles. "
+            "Para retenerlo, destaca el ahorro acumulado y el plan único en un solo recibo."
+        )
+    if any(w in msg for w in ("total", "plan", "tarifa", "premium", "fibra", "hogar", "gig", "gb", "incluye", "incluyen")):
+        return (
+            "Movistar Total une móvil, fibra y TV en un solo recibo con un precio único. "
+            "Revisa el catálogo de ofertas o el plan actual del cliente para detallar beneficios."
         )
     if ctx.get("oferta") and ahorro is not None:
         return (
-            f"Usa datos concretos, {nombre}: hoy paga S/ {monto:.2f} y con {ctx['oferta']} "
-            f"ahorraría S/ {ahorro:.2f} al mes. Menciona también que su mejor momento es por "
-            f"{ctx['canal'] or 'el canal que prefiera'}. Termina con una pregunta corta."
+            f"Usa datos, {nombre}: hoy paga S/ {monto:.2f} y con {ctx['oferta']} ahorraría "
+            f"S/ {ahorro:.2f} al mes. Mejor momento: {ctx['canal'] or 'el canal que prefiera'}. "
+            "Termina con una pregunta corta."
         )
     return (
-        f"{nombre}, preséntale la oferta con un beneficio concreto y pregúntale "
-        "cuál es su principal inquietud para resolverla primero."
+        f"Revisé el perfil de {nombre}: plan {ctx['plan']}, factura promedio de S/ {monto:.2f} "
+        f"y {ctx['n_reclamos']} reclamo(s) previo(s). ¿Qué aspecto quieres profundizar?"
     )
 
 

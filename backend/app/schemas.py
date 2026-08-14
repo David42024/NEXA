@@ -44,6 +44,8 @@ class ClientSummary(BaseModel):
     top_offer: Optional[str] = None
     motivo: Optional[str] = None
     plan_actual: Optional[str] = None
+    mejor_hora: Optional[str] = None
+    llamable_ahora: bool = False
 
 
 class ClientListResponse(BaseModel):
@@ -101,7 +103,7 @@ class SpeechRequest(BaseModel):
     razones: List[str]
     beneficio: Optional[str] = None
     tono: Optional[str] = "Consultivo"
-    canal: Optional[str] = "Digital"
+    canal: Optional[str] = "App"
 
 
 class SpeechVariant(BaseModel):
@@ -131,7 +133,7 @@ class InteractionRegister(BaseModel):
     client_id: str
     recommendation_id: Optional[int] = None
     offer_id: Optional[int] = None
-    channel: Optional[str] = "Digital"
+    channel: Optional[str] = "App"
     result: str  # accepted | rejected
     rejection_reason: Optional[str] = None
     speech_used: Optional[str] = None
@@ -170,7 +172,7 @@ class OfferingUpdate(BaseModel):
     channel: Optional[str] = None
     message_text: Optional[str] = None
     contact_status: Optional[str] = None
-    objection_handled: Optional[bool] = None
+    objection_status: Optional[str] = None
     speech_rebate: Optional[str] = None
     evidence_type: Optional[str] = None
     evidence_ref: Optional[str] = None
@@ -188,7 +190,7 @@ class OfferingOut(BaseModel):
     message_text: Optional[str] = None
     stage: str
     contact_status: Optional[str] = None
-    objection_handled: bool = False
+    objection_status: Optional[str] = None
     speech_rebate: Optional[str] = None
     evidence_type: Optional[str] = None
     evidence_ref: Optional[str] = None
@@ -254,6 +256,12 @@ class UserOut(BaseModel):
 class ThresholdsUpdate(BaseModel):
     low_probability: Optional[float] = None
     noise_probability: Optional[float] = None
+
+
+class MetasUpdate(BaseModel):
+    meta_diaria: Optional[int] = None
+    meta_semanal: Optional[int] = None
+    meta_mensual: Optional[int] = None
 
 
 class SystemLogOut(BaseModel):

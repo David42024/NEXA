@@ -170,9 +170,9 @@ class Offering(Base):
     message_text = Column(Text)  # que decir exactamente (speech)
     stage = Column(String(20), nullable=False, default="classified")
     contact_status = Column(String(20))  # answered | read | unanswered
-    objection_handled = Column(Boolean, default=False)
+    objection_status = Column(String(20))  # none (no fue necesario) | rebate (usé speech)
     speech_rebate = Column(Text)  # argumento de rebate usado ante la objecion
-    evidence_type = Column(String(30))  # call_audio | platform_register
+    evidence_type = Column(String(60))  # call_audio | platform_register | ambos (separados por coma)
     evidence_ref = Column(String(100))  # id/grabacion/registro
     result = Column(String(20))  # accepted | rejected
     rejection_reason = Column(String(50))

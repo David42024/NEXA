@@ -9,7 +9,7 @@ const LEVELS = [
 
 export default function ScoreLegend() {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-white/5">
+    <div className="rounded-xl border border-black/60 bg-white p-4 shadow-sm dark:border-white/60 dark:bg-white/5">
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
         Probabilidad de aceptación
       </p>

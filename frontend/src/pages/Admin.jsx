@@ -14,9 +14,35 @@ export default function Admin() {
   const [saving, setSaving] = useState(null)
   const [dirty, setDirty] = useState({})
 
+  const [metas, setMetas] = useState(null)
+  const [metasSaving, setMetasSaving] = useState(false)
+
   useEffect(() => {
     api.get('/api/admin/permissions').then(({ data }) => setPermissions(data)).finally(() => setLoading(false))
+    api.get('/api/admin/metas').then(({ data }) => setMetas({
+      meta_diaria: data.META_VENTAS_DIARIA,
+      meta_semanal: data.META_VENTAS_SEMANAL,
+      meta_mensual: data.META_VENTAS_MENSUAL,
+    })).catch(() => setMetas({ meta_diaria: 3, meta_semanal: 15, meta_mensual: 60 }))
   }, [])
+
+  async function saveMetas() {
+    setMetasSaving(true)
+    try {
+      const { data } = await api.put('/api/admin/metas', {
+        meta_diaria: Number(metas.meta_diaria) || 3,
+        meta_semanal: Number(metas.meta_semanal) || 15,
+        meta_mensual: Number(metas.meta_mensual) || 60,
+      })
+      setMetas({
+        meta_diaria: data.META_VENTAS_DIARIA,
+        meta_semanal: data.META_VENTAS_SEMANAL,
+        meta_mensual: data.META_VENTAS_MENSUAL,
+      })
+    } finally {
+      setMetasSaving(false)
+    }
+  }
 
   function togglePerm(role, perm) {
     setDirty((prev) => {
@@ -49,6 +75,52 @@ export default function Admin() {
       <p className="label-eyebrow">Administración</p>
       <h1 className="font-display font-bold text-2xl text-navy-900 mb-1">Roles y permisos</h1>
       <p className="text-sm text-slate-500 mb-6">Configurable en tiempo real, sin reiniciar el sistema.</p>
+
+      {/* Metas comerciales */}
+      <div className="card p-6 mb-6 max-w-xl">
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-display font-semibold text-lg text-navy-900">Metas comerciales</h3>
+          {metasSaving && <span className="text-xs text-slate-400">Guardando…</span>}
+        </div>
+        <p className="text-xs text-slate-400 mb-4">
+          El asesor ve en su dashboard su avance del día comparado con estas metas.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Meta diaria</span>
+            <input
+              type="number"
+              min="1"
+              value={metas?.meta_diaria ?? 3}
+              onChange={(e) => setMetas((m) => ({ ...m, meta_diaria: e.target.value }))}
+              className="input"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Meta semanal</span>
+            <input
+              type="number"
+              min="1"
+              value={metas?.meta_semanal ?? 15}
+              onChange={(e) => setMetas((m) => ({ ...m, meta_semanal: e.target.value }))}
+              className="input"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">Meta mensual</span>
+            <input
+              type="number"
+              min="1"
+              value={metas?.meta_mensual ?? 60}
+              onChange={(e) => setMetas((m) => ({ ...m, meta_mensual: e.target.value }))}
+              className="input"
+            />
+          </label>
+        </div>
+        <button onClick={saveMetas} disabled={metasSaving} className="btn-primary text-sm mt-4">
+          Guardar metas
+        </button>
+      </div>
 
       <div className="space-y-5">
         {Object.entries(permissions).map(([role, data]) => {

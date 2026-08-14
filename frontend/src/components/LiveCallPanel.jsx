@@ -9,6 +9,8 @@ import {
   Link2,
   PhoneCall,
   Timer,
+  FileDown,
+  Loader2,
 } from 'lucide-react'
 import { useAsesorCall, fmtDuration } from '../hooks/useCall'
 
@@ -16,6 +18,7 @@ import { useAsesorCall, fmtDuration } from '../hooks/useCall'
  * Llamada en vivo real (WebRTC): el asesor inicia la llamada, comparte el
  * enlace con el "cliente" y negocia el audio peer-to-peer. La transcripcion del
  * cliente alimenta al copilot Nexabot en tiempo real (via onCopilotEvent).
+ * Al colgar: mensaje "Guardando grabacion…" y descarga del reporte PDF del E2E.
  */
 export default function LiveCallPanel({
   clientId,
@@ -26,13 +29,49 @@ export default function LiveCallPanel({
   onCallEnded,
 }) {
   const [copied, setCopied] = useState(false)
+  const [savingRecording, setSavingRecording] = useState(false)
+  const [lastOffering, setLastOffering] = useState(null)
   const audioRef = useRef(null)
   const wasActive = useRef(false)
+  const lastOfferingRef = useRef(null)
+
+  function handleOfferingEvent(offering) {
+    if (offering?.id) {
+      lastOfferingRef.current = offering
+      setLastOffering(offering)
+    }
+    onE2E?.(offering)
+  }
+
+  function downloadPdf() {
+    const offering = lastOfferingRef.current
+    if (!offering?.id) return
+    const token = localStorage.getItem('nexa_token')
+    const base = import.meta.env.VITE_API_URL || ''
+    fetch(`${base}/api/e2e/offerings/${offering.id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error(r.statusText)
+        return r.blob()
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `reporte-${clientId}-${offering.id}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      })
+      .catch(() => {})
+  }
 
   const call = useAsesorCall({
     clientId,
     onCopilotEvent,
-    onOffering: onE2E,
+    onOffering: handleOfferingEvent,
     onRemoteStream: (stream) => {
       if (audioRef.current) {
         audioRef.current.srcObject = stream
@@ -41,13 +80,23 @@ export default function LiveCallPanel({
     },
   })
 
-  // Al terminar una llamada que sí llegó a conectarse, avisa al perfil para
-  // que el asesor complete los datos faltantes del cliente (post-llamada).
+  // Al terminar una llamada que sí llegó a conectarse: "Guardando grabacion…",
+  // luego auto-descarga el PDF del flujo y avisa para completar datos.
   useEffect(() => {
+    if (call.phase === 'idle') {
+      lastOfferingRef.current = null
+      setLastOffering(null)
+    }
     if (call.phase === 'active') wasActive.current = true
     if (call.phase === 'ended' && wasActive.current) {
       wasActive.current = false
-      onCallEnded?.()
+      setSavingRecording(true)
+      const t = setTimeout(() => {
+        setSavingRecording(false)
+        if (lastOfferingRef.current?.id) downloadPdf()
+        onCallEnded?.()
+      }, 2600)
+      return () => clearTimeout(t)
     }
   }, [call.phase, onCallEnded])
 
@@ -74,7 +123,8 @@ export default function LiveCallPanel({
       </div>
       <p className="mb-4 text-xs text-slate-400">
         Llamada WebRTC peer-to-peer: el asesor y el "cliente" hablan en vivo entre
-        navegadores. La IA detecta objeciones y sugiere cómo responder.
+        navegadores. La IA escucha la voz de ambos (Chrome/Edge) y sugiere cómo
+        responder.
       </p>
 
       <audio ref={audioRef} autoPlay className="hidden" />
@@ -162,20 +212,40 @@ export default function LiveCallPanel({
         </div>
       )}
 
-      {call.phase === 'ended' && (
-        <div>
-          <p className="mb-1 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
-            <PhoneOff className="h-4 w-4" />
-            Llamada finalizada · {fmtDuration(call.duration)}
-          </p>
-          <p className="mb-3 text-center text-[11px] text-slate-400">
-            Registrar el contacto y el resultado en el seguimiento E2E.
-          </p>
-          <button onClick={call.reset} className="btn-secondary w-full text-xs">
-            Nueva llamada
-          </button>
-        </div>
-      )}
+      {call.phase === 'ended' &&
+        (savingRecording ? (
+          <div className="py-5 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-500" />
+            <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+              Guardando grabación…
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              Se está registrando el audio como medio probatorio.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <p className="mb-1 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
+              <PhoneOff className="h-4 w-4" />
+              Llamada finalizada · {fmtDuration(call.duration)}
+            </p>
+            <p className="mb-3 text-center text-[11px] text-slate-400">
+              Registrar el contacto y el resultado en el seguimiento E2E.
+            </p>
+            {lastOffering?.id && (
+              <button
+                onClick={downloadPdf}
+                className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-300 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:border-emerald-400/30 dark:text-emerald-300"
+              >
+                <FileDown className="h-4 w-4" />
+                Descargar reporte PDF del flujo
+              </button>
+            )}
+            <button onClick={call.reset} className="btn-secondary w-full text-xs">
+              Nueva llamada
+            </button>
+          </div>
+        ))}
 
       {call.phase === 'ringing' && call.callInfo && (
         <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-slate-400">

@@ -33,6 +33,33 @@ def test_busqueda_incluye_elegible_y_score(client):
     assert 0 <= r["score"] <= 100
 
 
+def test_busqueda_incluye_mejor_hora_y_llamable(client):
+    """El resumen expone la mejor hora de atención y si es llamable ahora."""
+    c = client
+    token = login(c)
+    resp = c.get("/api/clients/search?q=C00001", headers=auth(token))
+    assert resp.status_code == 200
+    r = next(r for r in resp.json()["results"] if r["id"] == "C00001")
+    assert r["mejor_hora"] in ("08:00-12:00", "12:00-18:00", "19:00-23:00")
+    assert isinstance(r["llamable_ahora"], bool)
+
+
+def test_filtro_solo_llamables_ahora(client, monkeypatch):
+    """solo_ahora=true solo devuelve clientes llamables en el horario actual."""
+    import app.api.clients as clients_api
+
+    # Fija la hora a las 10:00 (dentro de 08:00-12:00) para que sea determinista.
+    monkeypatch.setattr(clients_api, "_now_hora", lambda: 10 * 60)
+    c = client
+    token = login(c)
+    resp = c.get("/api/clients?page_size=100&solo_ahora=true", headers=auth(token))
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) > 0
+    assert all(r["llamable_ahora"] for r in results)
+    assert any(r["id"] == "C00001" for r in results)
+
+
 def test_busqueda_id_parcial_sin_match_exacto(client):
     """Spec 10.5: ID inexistente con match parcial -> exact_match False + is_id_query True."""
     c = client

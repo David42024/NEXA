@@ -15,10 +15,20 @@ DEFAULT_THRESHOLDS = {
     "NOISE_PROBABILITY_THRESHOLD": settings.NOISE_PROBABILITY_THRESHOLD,
 }
 
+# Metas comerciales en caliente: el admin las ajusta desde el panel (por defecto
+# el asesor debe cerrar 3 ventas al dia, 15 a la semana y 60 al mes).
+DEFAULT_METAS = {
+    "META_VENTAS_DIARIA": 3,
+    "META_VENTAS_SEMANAL": 15,
+    "META_VENTAS_MENSUAL": 60,
+}
+
+DEFAULT_CONFIG = {**DEFAULT_THRESHOLDS, **DEFAULT_METAS}
+
 
 def ensure_default_config(db: Session) -> None:
     """Inserta los valores por defecto de config si la tabla esta vacia."""
-    for key, value in DEFAULT_THRESHOLDS.items():
+    for key, value in DEFAULT_CONFIG.items():
         existing = db.query(models.AppConfig).filter(models.AppConfig.key == key).first()
         if not existing:
             db.add(models.AppConfig(key=key, value=str(value)))
@@ -27,6 +37,16 @@ def ensure_default_config(db: Session) -> None:
 
 def get_config(db: Session) -> dict:
     return {r.key: r.value for r in db.query(models.AppConfig).all()}
+
+
+def get_metas(db: Session) -> dict:
+    """Metas comerciales actuales (diaria, semanal y mensual) como enteros."""
+    config = get_config(db)
+    return {
+        "META_VENTAS_DIARIA": int(float(config.get("META_VENTAS_DIARIA", DEFAULT_METAS["META_VENTAS_DIARIA"]))),
+        "META_VENTAS_SEMANAL": int(float(config.get("META_VENTAS_SEMANAL", DEFAULT_METAS["META_VENTAS_SEMANAL"]))),
+        "META_VENTAS_MENSUAL": int(float(config.get("META_VENTAS_MENSUAL", DEFAULT_METAS["META_VENTAS_MENSUAL"]))),
+    }
 
 
 def get_thresholds(db: Session) -> dict:

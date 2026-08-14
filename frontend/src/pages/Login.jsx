@@ -177,7 +177,7 @@ export default function Login() {
 
         {/* Panel de autenticación */}
         <div className="animate-nexa-rise mx-auto w-full max-w-md [animation-delay:80ms] lg:max-w-none">
-          <div className="rounded-2xl border border-slate-200/80 bg-white/70 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_30px_60px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/10 dark:bg-navy-900/60 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_30px_60px_-30px_rgba(2,8,20,0.9)] sm:p-8">
+          <div className="rounded-2xl border border-black/60 bg-white/70 p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_30px_60px_-30px_rgba(15,23,42,0.25)] backdrop-blur-xl dark:border-white/60 dark:bg-navy-900/60 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_30px_60px_-30px_rgba(2,8,20,0.9)] sm:p-8">
             <h2 className="font-display text-xl font-semibold tracking-tight text-navy-900 dark:text-white">
               Bienvenido de vuelta
             </h2>

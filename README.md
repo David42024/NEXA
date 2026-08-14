@@ -14,7 +14,7 @@ backend, frontend, base de datos y datos sintéticos de demo.
 - **Backend:** FastAPI (Python) + SQLAlchemy + JWT
 - **Base de datos:** PostgreSQL en producción (SQLite por defecto en local, sin configuración extra)
 - **IA generativa (speech):** Grok API (primary) → Gemini/HuggingFace (fallback) → plantilla local (contingencia final)
-- **Infraestructura sugerida:** Vercel (frontend) + cualquier host compatible con FastAPI/Postgres para el backend (Render, Railway, Fly.io, etc.)
+- **Infraestructura:** Vercel (frontend) + Render (backend, WebSockets para la llamada en vivo) + Supabase (PostgreSQL)
 
 ## Estructura
 
@@ -105,6 +105,69 @@ Y en `backend/.env`:
 DATABASE_URL=postgresql://usuario:password@localhost:5432/nexa
 ```
 
+## Despliegue en producción (Vercel + Render + Supabase)
+
+La llamada WebRTC y el copilot en vivo usan WebSockets, por lo que el backend
+NO puede vivir en Vercel (funciones serverless sin WebSocket en Python). El
+backend va en **Render** (soporta WebSockets), el frontend en **Vercel** y la
+base de datos en **Supabase** (PostgreSQL).
+
+### 1. Base de datos (Supabase)
+
+1. Crea un proyecto en [supabase.com](https://supabase.com).
+2. En **Settings → Database → Connection string (URI)**, copia la URL (usa la de
+   *Transaction pooler*, puerto 6543) y agrégale `?sslmode=require` al final.
+   Ejemplo:
+   ```
+   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require
+   ```
+3. Guarda esa URL; se usará como `DATABASE_URL`. El código la normaliza
+   automáticamente a `postgresql+psycopg2://`.
+
+### 2. Backend (Render)
+
+1. Sube el repo a GitHub.
+2. En Render crea un **Blueprint** desde `render.yaml` (raíz del repo), o un
+   **Web Service** manual con `Root Directory = backend`:
+   - Build: `pip install -r requirements.txt`
+   - Start: `alembic upgrade head && python -c "from app.seed_data import seed; seed()" && uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+3. Variables de entorno:
+   | Variable | Valor |
+   |----------|-------|
+   | `DATABASE_URL` | URL de Supabase (paso 1) |
+   | `JWT_SECRET` | clave fuerte (p.ej. `openssl rand -hex 32`) |
+   | `CORS_ALLOWED_ORIGINS` | dominio del frontend en Vercel (sin `*`) |
+   | `ENVIRONMENT` | `production` |
+   | `GROK_API_KEY` / `FALLBACK_API_KEY` | (opcional) para speech con IA real |
+4. El health check usa `/health`.
+   > Nota: las instancias free de Render duermen tras 15 min de inactividad y el
+   > despertar tarda ~50 s. Para llamadas siempre disponibles usa un plan con
+   > auto-sleep desactivado.
+
+### 3. Frontend (Vercel)
+
+1. Importa la carpeta `frontend` (o el repo) en Vercel. `vercel.json` ya define
+   el build de Vite y los rewrites SPA para que el enlace público de la llamada
+   (`/llamada/:callId`) funcione como deep link.
+2. Variable de entorno `VITE_API_URL` = URL del backend en Render (sin barra
+   final), p.ej. `https://nexa-api.onrender.com`.
+3. Despliega. El enlace de llamada que genera el asesor (`/llamada/:callId`)
+   apunta al propio frontend, así que cualquier persona que lo abra desde su
+   dispositivo puede **recepcionar la llamada** sin registrarse.
+   > Nota: el audio viaja P2P (WebRTC con STUN público). Si ambos lados están
+   > detrás de NAT estricto la conexión puede fallar; en producción conviene
+   > agregar un **TURN** (p.ej. Twilio/Metered) en `ICE_SERVERS` de
+   > `frontend/src/hooks/useCall.js`.
+
+### 4. Voz de ambos lados (copilot)
+
+El navegador de cada participante transcribe su propia voz (Web Speech API) y la
+etiqueta por hablante: el copilot escucha al **cliente** (detecta objeciones y
+sugiere cómo responder) y al **asesor** (revisa si aplicó bien el pitch y sugiere
+mejorar). La transcripción en vivo de ambos aparece en el panel Nexabot.
+> La Web Speech API funciona en Chrome/Edge (desktop y Android). En iOS/Safari
+> la llamada funciona normal pero sin transcripción automática.
+
 ## Flujo funcional del asesor (implementado)
 
 1. Login (JWT, roles: asesor / supervisor / admin)
@@ -145,6 +208,4 @@ DATABASE_URL=postgresql://usuario:password@localhost:5432/nexa
 
 - Conectar el endpoint real del modelo NBO del equipo estadístico
 - Configurar `GROK_API_KEY` / `FALLBACK_API_KEY` para speech con IA real
-- Migrar a PostgreSQL gestionado (Neon, Supabase, RDS) para producción
-- Añadir tests automatizados (pytest + testing-library)
 - Encriptación AES-256 de campos sensibles en producción

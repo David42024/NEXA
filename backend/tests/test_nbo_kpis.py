@@ -70,3 +70,4 @@ def test_profile_enriquecido_con_variables_del_dashboard():
         assert isinstance(campanias, list) and len(campanias) >= 2
         for camp in campanias:
             assert camp["fecha"] and camp["etapa"] and camp["canal"]
+            assert camp["oferta"]

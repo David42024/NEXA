@@ -10,32 +10,38 @@ pero falla el manejo de objeciones").
 """
 from datetime import date, timedelta, datetime
 
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
 from app.security import require_permission, get_current_user, get_user_permissions
+from app.services.report_pdf import build_offering_report
 
 router = APIRouter(prefix="/api/e2e", tags=["e2e"])
 
-STAGE_ORDER = ["classified", "planned", "contacted", "objection", "evidence", "result"]
+STAGE_ORDER = ["classified", "planned", "contacted", "objection", "result"]
 STAGE_LABELS = {
     "classified": "Clasificados",
     "planned": "Contacto y mensaje",
     "contacted": "Contactabilidad",
     "objection": "Objeciones manejadas",
-    "evidence": "Medios probatorios",
     "result": "Resultado de venta",
 }
 VALID_STAGES = set(STAGE_ORDER)
 VALID_CHANNELS = {"WhatsApp", "Llamada", "App"}
 VALID_CONTACT = {"answered", "read", "unanswered"}
+VALID_OBJECTION = {"none", "rebate"}
 VALID_EVIDENCE = {"call_audio", "platform_register"}
 VALID_RESULTS = {"accepted", "rejected"}
 
 
 def _stage_index(stage: str) -> int:
+    if stage == "evidence":  # etapa legacy: la evidencia ahora se registra sola (metadato)
+        return STAGE_ORDER.index("result")
     return STAGE_ORDER.index(stage) if stage in VALID_STAGES else -1
 
 
@@ -51,7 +57,7 @@ def _out(db: Session, o: models.Offering) -> schemas.OfferingOut:
         message_text=o.message_text,
         stage=o.stage,
         contact_status=o.contact_status,
-        objection_handled=bool(o.objection_handled),
+        objection_status=o.objection_status,
         speech_rebate=o.speech_rebate,
         evidence_type=o.evidence_type,
         evidence_ref=o.evidence_ref,
@@ -123,14 +129,21 @@ def update_offering(
         if changes["contact_status"] is not None and changes["contact_status"] not in VALID_CONTACT:
             raise HTTPException(status_code=422, detail=f"Estado de contacto no válido: {changes['contact_status']}")
         offering.contact_status = changes["contact_status"]
-    if "objection_handled" in changes:
-        offering.objection_handled = bool(changes["objection_handled"])
+    if "objection_status" in changes:
+        if changes["objection_status"] is not None and changes["objection_status"] not in VALID_OBJECTION:
+            raise HTTPException(status_code=422, detail=f"Estado de objecion no válido: {changes['objection_status']}")
+        offering.objection_status = changes["objection_status"]
     if "speech_rebate" in changes:
         offering.speech_rebate = changes["speech_rebate"]
     if "evidence_type" in changes:
-        if changes["evidence_type"] is not None and changes["evidence_type"] not in VALID_EVIDENCE:
-            raise HTTPException(status_code=422, detail=f"Tipo de evidencia no válido: {changes['evidence_type']}")
-        offering.evidence_type = changes["evidence_type"]
+        val = changes["evidence_type"]
+        if val is not None:
+            parts = [v.strip() for v in val.split(",") if v.strip()]
+            if not parts or any(part not in VALID_EVIDENCE for part in parts):
+                raise HTTPException(status_code=422, detail=f"Tipo de evidencia no válido: {val}")
+            offering.evidence_type = ",".join(dict.fromkeys(parts))
+        else:
+            offering.evidence_type = None
     if "evidence_ref" in changes:
         offering.evidence_ref = changes["evidence_ref"]
     if "result" in changes:
@@ -164,6 +177,23 @@ def list_offerings(
         .all()
     )
     return [_out(db, r) for r in rows]
+
+
+@router.get("/offerings/{offering_id}/pdf")
+def offering_report_pdf(
+    offering_id: int,
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("view_client_profile")),
+):
+    """Genera el PDF del flujo E2E de un ofrecimiento (cliente, oferta, etapas,
+    rebates, medios probatorios, resultado y estadísticas relevantes)."""
+    offering = db.query(models.Offering).filter(models.Offering.id == offering_id).first()
+    if not offering:
+        raise HTTPException(status_code=404, detail="Ofrecimiento no encontrado")
+    pdf_bytes = build_offering_report(db, offering)
+    filename = f"reporte-{offering.client_id}-{offering.id}.pdf"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(BytesIO(pdf_bytes), media_type="application/pdf", headers=headers)
 
 
 @router.get("/report", response_model=schemas.FunnelE2EReport)
@@ -215,7 +245,7 @@ def e2e_report(
         contact_status=_count(lambda r: r.contact_status),
         objections={
             "alcanzaron_objecion": reached.get("objection", 0),
-            "manejadas_con_rebate": sum(1 for r in rows if r.objection_handled),
+            "manejadas_con_rebate": sum(1 for r in rows if r.objection_status == "rebate"),
         },
         evidence_types=_count(lambda r: r.evidence_type),
         results=_count(lambda r: r.result),

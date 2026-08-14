@@ -47,7 +47,7 @@ def _build_prompt(payload: Dict, variant: str) -> str:
         f"para asesores de Movistar. Cliente: {payload.get('cliente_nombre')}. "
         f"Oferta a ofrecer: {payload.get('oferta')} (probabilidad de aceptacion {payload.get('probabilidad')}%). "
         f"Razones: {razones}. Beneficio clave: {payload.get('beneficio', 'N/A')}. "
-        f"Canal: {payload.get('canal', 'Digital')}. Tono: {tono}. "
+        f"Canal: {payload.get('canal', 'App')}. Tono: {tono}. "
         f"Responde SOLO con el texto del speech, sin comillas ni explicaciones."
     )
 

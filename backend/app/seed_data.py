@@ -6,6 +6,7 @@ Cumple con la estrategia de anonimizacion (10.4): nombre + primer apellido,
 documento/telefono solo ultimos 4 digitos, direccion reducida a distrito.
 """
 import random
+import copy
 from datetime import date, timedelta, datetime
 from faker import Faker
 
@@ -23,8 +24,40 @@ random.seed(42)
 DISTRITOS = ["San Isidro", "Miraflores", "Surco", "La Molina", "San Borja",
              "Jesus Maria", "Lince", "Pueblo Libre", "Los Olivos", "San Miguel"]
 ESTRATOS = ["A", "B", "C", "D"]
-CANALES = ["Digital", "Call Center", "Tienda"]
+CANALES = ["WhatsApp", "Llamada", "App"]
+
+# Canales legacy del primer seed (tipos) -> canales de contacto reales (medios),
+# coherentes con las opciones del E2E (WhatsApp/Llamada/App).
+LEGACY_CANAL_MAP = {"Digital": "App", "Call Center": "Llamada", "Tienda": "WhatsApp"}
 RECHAZO_MOTIVOS = ["Precio", "No necesita", "Ya tiene con otro operador", "Quiere pensarlo", "Mal momento"]
+RECLAMO_MOTIVOS = [
+    "Facturación duplicada",
+    "Cobro por servicios no contratados",
+    "Fallas de cobertura en mi zona",
+    "Velocidad de internet menor a la contratada",
+    "Cargo por roaming no realizado",
+    "Problemas para activar el equipo",
+    "Promoción no aplicada en el recibo",
+]
+
+
+def _reclamos_for(n: int, seed=None) -> list:
+    """Genera un historial de `n` reclamos con fecha, motivo y estado.
+
+    Con `seed` fijo (ej. id del cliente) el resultado es estable entre ejecuciones,
+    lo que permite el backfill idempotente de perfiles ya sembrados.
+    """
+    rng = random.Random(seed)
+    n = max(0, min(4, n))
+    out = []
+    for _ in range(n):
+        out.append({
+            "fecha": (date.today() - timedelta(days=rng.randint(15, 360))).isoformat(),
+            "motivo": rng.choice(RECLAMO_MOTIVOS),
+            "estado": rng.choices(["Resuelto", "En proceso", "Abierto"], weights=[60, 25, 15])[0],
+        })
+    out.sort(key=lambda r: r["fecha"], reverse=True)
+    return out
 
 
 def build_client_profile(idx: int):
@@ -52,6 +85,11 @@ def build_client_profile(idx: int):
     monto_facturado_prom = round(monto_actual + (random.uniform(45, 80) if tiene_internet else random.uniform(0, 5)), 2)
     estado_pago = random.choices(["Pagado", "Pendiente"], weights=[85, 15])[0]
     dias_mora_prom = random.randint(6, 25) if estado_pago == "Pendiente" else random.randint(0, 3)
+
+    # Historial de reclamos consistente con el contador de friccion.
+    n_reclamos = random.randint(0, 4)
+    reclamos = _reclamos_for(n_reclamos)
+    reclamos_abiertos = sum(1 for r in reclamos if r["estado"] != "Resuelto")
 
     profile = {
         "id": f"C{idx:05d}",
@@ -108,9 +146,10 @@ def build_client_profile(idx: int):
             "app_downloads": random.random() < 0.6,
             "app_login_frecuencia": random.choice(["Diario", "Semanal", "Rara vez"]),
             "uso_web": random.random() < 0.7,
-            "reclamos_12m": random.randint(0, 4),
-            "n_reclamos": random.randint(0, 4),
-            "reclamos_abiertos": random.randint(0, 1),
+            "reclamos_12m": n_reclamos,
+            "n_reclamos": n_reclamos,
+            "reclamos_abiertos": reclamos_abiertos,
+            "reclamos": reclamos,
             "nps": random.randint(0, 10),
             "satisfaccion": random.choice(["Alta", "Media-Alta", "Media", "Baja"]),
         },
@@ -136,13 +175,14 @@ def build_client_profile(idx: int):
             entry["motivo"] = random.choice(RECHAZO_MOTIVOS)
         profile["historial_ofertas"].append(entry)
 
-    # Historial de campanas previas (timeline de etapas hasta la recomendacion actual)
+    # Historial de campanas previas (timeline de etapas hasta la recomendacion actual).
+    # Cada campana incluye el plan/oferta que intentaba vender.
     campania_pool = [
-        {"campaña": "Masiva Fibra", "canal": "WhatsApp"},
-        {"campaña": "Retención Fin de Año", "canal": "Llamada"},
-        {"campaña": "Fidelización Q1", "canal": "App"},
-        {"campaña": "Upgrade Equipos", "canal": "Llamada"},
-        {"campaña": "Campaña Hogar", "canal": "WhatsApp"},
+        {"campaña": "Masiva Fibra", "canal": "WhatsApp", "oferta": "Plan Hogar"},
+        {"campaña": "Retención Fin de Año", "canal": "Llamada", "oferta": "Movistar Total Premium"},
+        {"campaña": "Fidelización Q1", "canal": "App", "oferta": "Movistar Total Premium"},
+        {"campaña": "Upgrade Equipos", "canal": "Llamada", "oferta": "Upgrade Móvil"},
+        {"campaña": "Campaña Hogar", "canal": "WhatsApp", "oferta": "Plan Hogar"},
     ]
     historial_campanias = []
     for i in range(random.randint(2, 4)):
@@ -153,6 +193,7 @@ def build_client_profile(idx: int):
             "etapa": random.choice(["Analizado", "Contactado", "Oferta"]),
             "canal": c["canal"],
             "resultado": random.choice(["Sin respuesta", "Sin interés", "Pendiente"]),
+            "oferta": c["oferta"],
         })
     historial_campanias.sort(key=lambda e: e["fecha"])
     profile["historial_campanias"] = historial_campanias
@@ -415,6 +456,93 @@ def seed_demo_activity(db=None):
             db.close()
 
 
-if __name__ == "__main__":
+def backfill_reclamos(db) -> int:
+    """Backfill idempotente: agrega el historial de reclamos a perfiles ya sembrados.
+
+    Los clientes antiguos no tienen el array `reclamos`; se genera uno consistente
+    con su contador `n_reclamos` (estable por cliente via seed=id). No toca a los
+    que ya lo tienen.
+    """
+    clients = db.query(models.Client).all()
+    updated = 0
+    for c in clients:
+        # deepcopy: si no, SQLAlchemy JSON no detecta el cambio en dicts anidados
+        # y el UPDATE nunca llega a la BD.
+        profile = copy.deepcopy(c.profile or {})
+        comp = profile.setdefault("comportamiento", {})
+        if not isinstance(comp, dict):
+            comp = {}
+            profile["comportamiento"] = comp
+        if isinstance(comp.get("reclamos"), list):
+            continue
+        n = comp.get("n_reclamos") or comp.get("reclamos_12m") or 0
+        comp["reclamos"] = _reclamos_for(n, seed=c.id)
+        comp["reclamos_abiertos"] = sum(1 for r in comp["reclamos"] if r["estado"] != "Resuelto")
+        c.profile = profile
+        updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+def backfill_canales(db) -> int:
+    """Backfill idempotente: normaliza los canales legacy (Digital/Call Center/Tienda)
+    a los canales de contacto reales (WhatsApp/Llamada/App) para que el chip
+    "Canal preferido" sea coherente con las opciones del E2E.
+    """
+    clients = db.query(models.Client).all()
+    updated = 0
+    for c in clients:
+        profile = copy.deepcopy(c.profile or {})
+        comp = profile.get("comportamiento") or {}
+        if not isinstance(comp, dict):
+            comp = {}
+            profile["comportamiento"] = comp
+        changed = False
+        for field in ("canal_principal", "canal_mas_usado", "canal_secundario"):
+            val = comp.get(field)
+            if val in LEGACY_CANAL_MAP:
+                comp[field] = LEGACY_CANAL_MAP[val]
+                changed = True
+        if changed:
+            c.profile = profile
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
+
+
+# Oferta objetivo de cada campana del pool (estable, para backfill idempotente).
+CAMPANIA_PLAN = {
+    "Masiva Fibra": "Plan Hogar",
+    "Retención Fin de Año": "Movistar Total Premium",
+    "Fidelización Q1": "Movistar Total Premium",
+    "Upgrade Equipos": "Upgrade Móvil",
+    "Campaña Hogar": "Plan Hogar",
+}
+
+
+def backfill_campania_ofertas(db) -> int:
+    """Backfill idempotente: agrega el plan/oferta objetivo a las campanas del
+    timeline de clientes ya sembrados (antes de que ese campo existiera).
+    """
+    clients = db.query(models.Client).all()
+    updated = 0
+    for c in clients:
+        profile = copy.deepcopy(c.profile or {})
+        hc = profile.get("historial_campanias")
+        if not isinstance(hc, list):
+            continue
+        changed = False
+        for entry in hc:
+            if isinstance(entry, dict) and "oferta" not in entry:
+                entry["oferta"] = CAMPANIA_PLAN.get(entry.get("campaña"))
+                changed = True
+        if changed:
+            c.profile = profile
+            updated += 1
+    if updated:
+        db.commit()
+    return updated
     seed()
     seed_demo_activity()

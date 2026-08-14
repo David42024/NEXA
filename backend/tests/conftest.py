@@ -58,7 +58,7 @@ DEMO_CLIENTS = [
         "phone_last4": "5678", "district": "Miraflores",
         "profile": {
             "servicio": {"tipo": "Postpago", "antiguedad_meses": 24},
-            "consumo": {"datos_gb": 40, "app_uso": "Alto"},
+            "consumo": {"datos_gb": 40, "app_uso": "Alto", "mejor_franja_horaria_contacto": "08:00-12:00"},
             "hogar": {"tiene_internet": True},
             "elegibilidad": {"movistar_total": True, "upgrade": True, "equipo": True, "plan_hogar": False},
         },
@@ -68,7 +68,7 @@ DEMO_CLIENTS = [
         "phone_last4": "8765", "district": "Surco",
         "profile": {
             "servicio": {"tipo": "Postpago", "antiguedad_meses": 6},
-            "consumo": {"datos_gb": 15, "app_uso": "Bajo"},
+            "consumo": {"datos_gb": 15, "app_uso": "Bajo", "mejor_franja_horaria_contacto": "12:00-18:00"},
             "hogar": {"tiene_internet": False},
             "elegibilidad": {"movistar_total": False, "upgrade": True, "equipo": False, "plan_hogar": True},
         },
@@ -78,7 +78,7 @@ DEMO_CLIENTS = [
         "phone_last4": "1111", "district": "Lince",
         "profile": {
             "servicio": {"tipo": "Postpago", "antiguedad_meses": 2},
-            "consumo": {"datos_gb": 5, "app_uso": "Bajo"},
+            "consumo": {"datos_gb": 5, "app_uso": "Bajo", "mejor_franja_horaria_contacto": "19:00-23:00"},
             "hogar": {"tiene_internet": False},
             "elegibilidad": {"movistar_total": False, "upgrade": False, "equipo": False, "plan_hogar": False},
         },

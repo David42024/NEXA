@@ -52,12 +52,14 @@ def test_recomendacion_cliente_elegible_incrementa_prioritized(client, session):
     assert funnel.prioritized == 1
 
 
-def test_recomendacion_cliente_no_elegible_no_incrementa_prioritized(client, session):
+def test_recomendacion_cliente_no_elegible_devuelve_fallback_sin_priorizar(client, session):
     token = login(client)
 
     resp = _recommend(client, token, "C00003")
     assert resp.status_code == 200
-    assert resp.json()["recomendaciones"] == []
+    # Siempre se recomienda algo (fallback), aunque no cuente como priorizado.
+    assert len(resp.json()["recomendaciones"]) == 1
+    assert resp.json()["recomendaciones"][0]["low_probability"] is True
     assert resp.json()["warning"] is not None
 
     funnel = _today_funnel(session)

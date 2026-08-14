@@ -10,7 +10,7 @@ const gradientMap = {
 export default function KpiCard({ icon, label, value, sublabel, accent = 'blue', loading = false }) {
   const gradient = gradientMap[accent] || gradientMap.blue
   return (
-    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 transition-colors duration-200 dark:border-white/5 dark:bg-navy-800/60">
+    <div className="rounded-2xl border border-black/60 bg-white p-5 transition-colors duration-200 dark:border-white/60 dark:bg-navy-800/60">
       <div className="flex items-center gap-4">
         <div
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-xl text-white shadow-lg shadow-blue-500/10 ${gradient}`}

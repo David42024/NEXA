@@ -72,14 +72,25 @@ def test_warning_y_top2_cuando_todas_menores_50pct(monkeypatch):
     assert "Baja probabilidad" in result["warning"]
 
 
-def test_sin_ofertas_elegibles_devuelve_warning(monkeypatch):
+def test_sin_ofertas_elegibles_siempre_recomienda_fallback(monkeypatch):
+    """Sin ofertas elegibles el motor devuelve una oferta de respaldo (nunca vacío)."""
     monkeypatch.setattr(
         nbo_engine, "call_external_model",
         lambda cid, profile: [],
     )
     result = get_recommendations_for_client("C00001", {})
-    assert result["recomendaciones"] == []
+    assert len(result["recomendaciones"]) == 1
+    assert result["recomendaciones"][0]["low_probability"] is True
     assert result["warning"] is not None
+
+
+def test_fallback_reusa_oferta_de_campana():
+    """El fallback aprovecha la oferta de la campaña de retención más reciente."""
+    profile = {"historial_campanias": [{"campaña": "Retención Fin de Año", "oferta": "Movistar Total Premium"}]}
+    result = get_recommendations_for_client("C00001", profile)
+    assert len(result["recomendaciones"]) == 1
+    assert result["recomendaciones"][0]["offer_name"] == "Movistar Total Premium"
+    assert 0.05 <= result["recomendaciones"][0]["probabilidad"] <= 0.20
 
 
 def test_orden_final_por_score_descendente(monkeypatch):
