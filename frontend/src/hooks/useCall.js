@@ -98,12 +98,17 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   const [error, setError] = useState(null)
   const [callInfo, setCallInfo] = useState(null)
   const [muted, setMuted] = useState(false)
+  const [recordingUrl, setRecordingUrl] = useState(null)
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
 
+  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
   const wsRef = useRef(null)
   const pcRef = useRef(null)
   const recRef = useRef(null)
+  const remoteStreamRef = useRef(null)
+  const recMediaRef = useRef(null)
+  const recordingUrlRef = useRef(null)
   const phaseRef = useRef('idle')
   const endedRef = useRef(false)
 
@@ -121,10 +126,53 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     }
   }
 
+  // Graba la llamada mezclando el micro local y el audio remoto del cliente.
+  function startRecording() {
+    if (recMediaRef.current || !window.MediaRecorder) return
+    const local = streamRef.current
+    const remote = remoteStreamRef.current
+    if (!local || !remote) return
+    try {
+      const actx = new (window.AudioContext || window.webkitAudioContext)()
+      const dest = actx.createMediaStreamDestination()
+      const connect = (stream) => {
+        stream.getAudioTracks().forEach((t) => {
+          const src = actx.createMediaStreamSource(new MediaStream([t]))
+          src.connect(dest)
+        })
+      }
+      connect(local)
+      connect(remote)
+      const recorder = new MediaRecorder(dest.stream)
+      const chunks = []
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' })
+        if (recordingUrlRef.current) URL.revokeObjectURL(recordingUrlRef.current)
+        recordingUrlRef.current = URL.createObjectURL(blob)
+        setRecordingUrl(recordingUrlRef.current)
+        recMediaRef.current = null
+        try { actx.close() } catch { /* ya cerrado */ }
+      }
+      recorder.start()
+      recMediaRef.current = { recorder, actx }
+    } catch { /* grabacion no disponible */ }
+  }
+
+  function stopRecording() {
+    const rec = recMediaRef.current
+    if (rec?.recorder && rec.recorder.state !== 'inactive') {
+      try { rec.recorder.stop() } catch { /* ya detenido */ }
+    } else {
+      recMediaRef.current = null
+    }
+  }
+
   const cleanup = useCallback(() => {
     stopTimer()
     stopStream()
     stopSTT()
+    stopRecording()
     pcRef.current?.close()
     pcRef.current = null
   }, [stopTimer, stopStream])
@@ -160,7 +208,10 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
             ws.send(JSON.stringify({ type: 'candidate', candidate }))
           )
           pcRef.current = pc
-          pc.ontrack = (e) => onRemoteStream?.(e.streams[0])
+          pc.ontrack = (e) => {
+            if (e.streams?.[0]) remoteStreamRef.current = e.streams[0]
+            onRemoteStream?.(e.streams[0])
+          }
           const offer = await pc.createOffer()
           await pc.setLocalDescription(offer)
           ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }))
@@ -182,11 +233,13 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           setPhaseAll('active')
           startTimer()
           startSTT()
+          setTimeout(() => { if (phaseRef.current === 'active') startRecording() }, 500)
         } else if (msg.type === 'answer' && msg.sdp) {
           await pcRef.current?.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
           setPhaseAll('active')
           startTimer()
           startSTT()
+          setTimeout(() => { if (phaseRef.current === 'active') startRecording() }, 500)
         } else if (msg.type === 'candidate') {
           try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
         } else if (msg.type === 'copilot') {
@@ -225,6 +278,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   }
 
   function hangup(reason = 'ended') {
+    if (typeof reason !== 'string') reason = 'ended'
     wsRef.current?.send(JSON.stringify({ type: 'end', reason }))
     wsRef.current?.close()
     endedRef.current = true
@@ -238,10 +292,15 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     setError(null)
     setCallInfo(null)
     setMuted(false)
+    if (recordingUrlRef.current) {
+      URL.revokeObjectURL(recordingUrlRef.current)
+      recordingUrlRef.current = null
+      setRecordingUrl(null)
+    }
     stopTimer()
   }
 
-  return { phase, error, callInfo, duration, muted, start, toggleMute, hangup, reset }
+  return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, start, toggleMute, hangup, reset }
 }
 
 /**
@@ -252,12 +311,16 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   const [phase, setPhase] = useState('incoming') // incoming | connecting | active | ended
   const [error, setError] = useState(null)
   const [muted, setMuted] = useState(false)
+  const [botText, setBotText] = useState('')
+  const [botSpeaking, setBotSpeaking] = useState(false)
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
 
+  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
   const wsRef = useRef(null)
   const pcRef = useRef(null)
   const recRef = useRef(null)
+  const utteranceRef = useRef(null)
   const phaseRef = useRef('incoming')
   const endedRef = useRef(false)
 
@@ -270,6 +333,10 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     stopTimer()
     stopStream()
     stopSTT()
+    if (utteranceRef.current) {
+      window.speechSynthesis?.cancel()
+      utteranceRef.current = null
+    }
     pcRef.current?.close()
     pcRef.current = null
   }, [stopTimer, stopStream])
@@ -287,6 +354,42 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
 
   function startSTT(ws) {
     recRef.current = createSTT(ws, 'cliente', () => phaseRef.current === 'active')
+  }
+
+  // Pausa la transcripcion mientras el bot habla (evita que se escuche a si mismo).
+  function pauseSTT() {
+    if (recRef.current) {
+      recRef.current.onresult = null
+      recRef.current.onend = null
+      try { recRef.current.stop() } catch { /* ya detenida */ }
+      recRef.current = null
+    }
+  }
+
+  function restartSTT() {
+    if (phaseRef.current === 'active' && !recRef.current) {
+      startSTT(wsRef.current)
+    }
+  }
+
+  function speakBot(text) {
+    if (!window.speechSynthesis || !text) return
+    if (utteranceRef.current) window.speechSynthesis.cancel()
+    pauseSTT()
+    const u = new SpeechSynthesisUtterance(text)
+    u.lang = 'es-PE'
+    u.rate = 1.02
+    const done = () => {
+      utteranceRef.current = null
+      setBotSpeaking(false)
+      restartSTT()
+    }
+    u.onend = done
+    u.onerror = done
+    utteranceRef.current = u
+    setBotText(text)
+    setBotSpeaking(true)
+    window.speechSynthesis.speak(u)
   }
 
   async function answer() {
@@ -329,6 +432,8 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
         }
       } else if (msg.type === 'candidate') {
         try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
+      } else if (msg.type === 'bot_speech') {
+        speakBot(msg.text)
       } else if (msg.type === 'ended') {
         endedRef.current = true
         stopTimer()
@@ -358,6 +463,7 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   }
 
   function hangup(reason = 'ended') {
+    if (typeof reason !== 'string') reason = 'ended'
     wsRef.current?.send(JSON.stringify({ type: 'end', reason }))
     wsRef.current?.close()
     endedRef.current = true
@@ -366,5 +472,5 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     setPhaseAll('ended')
   }
 
-  return { phase, error, duration, muted, answer, decline, toggleMute, hangup }
+  return { phase, error, duration, muted, botText, botSpeaking, sttSupported, answer, decline, toggleMute, hangup }
 }

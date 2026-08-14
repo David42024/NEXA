@@ -78,6 +78,13 @@ export default function ClientCall() {
           <div className="py-10">
             <Phone className="mx-auto h-10 w-10 animate-pulse text-emerald-400" />
             <p className="mt-4 text-sm text-slate-300">Conectando con el asesor…</p>
+            <button
+              onClick={() => call.hangup()}
+              className="mt-6 flex items-center justify-center gap-2 rounded-full bg-slate-700 px-6 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-600"
+            >
+              <PhoneOff className="h-4 w-4" />
+              Colgar
+            </button>
           </div>
         )}
 
@@ -99,6 +106,23 @@ export default function ClientCall() {
               </p>
             )}
 
+            {call.botSpeaking && call.botText && (
+              <div className="mx-auto mt-4 max-w-sm rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-4 py-3 text-left">
+                <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
+                  Nexabot habla
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-100">{call.botText}</p>
+              </div>
+            )}
+
+            {!sttSupported && (
+              <p className="mt-3 text-[11px] text-amber-300/80">
+                Tu navegador no soporta transcripción de voz: usa Chrome o Edge para
+                que el bot te escuche.
+              </p>
+            )}
+
             <div className="mt-8 flex items-center justify-center gap-4">
               <button
                 onClick={call.toggleMute}
@@ -112,7 +136,7 @@ export default function ClientCall() {
                 {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
               </button>
               <button
-                onClick={call.hangup}
+                onClick={() => call.hangup()}
                 className="flex h-20 w-20 items-center justify-center rounded-full bg-rose-600 text-white shadow-lg shadow-rose-600/30 transition-colors hover:bg-rose-700"
                 aria-label="Colgar llamada"
               >

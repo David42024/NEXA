@@ -23,6 +23,7 @@ import asyncio
 import secrets
 import time
 import uuid
+from typing import Dict
 
 from app.config import settings
 from app import models
@@ -72,6 +73,29 @@ def _offering_out(offering):
         "result": offering.result,
         "rejection_reason": offering.rejection_reason,
     }
+
+
+def _clean_speech(text: str) -> str:
+    """Quita comillas/guiones para que el TTS no lea la puntuacion."""
+    t = (text or "").strip()
+    for ch in "\"'“”«»*_-":
+        t = t.replace(ch, " ")
+    t = " ".join(t.split())
+    return t
+
+
+def _default_opening(ctx: Dict) -> str:
+    nombre = ctx.get("nombre") or "cliente"
+    oferta = ctx.get("oferta")
+    if oferta:
+        return (
+            f"Hola {nombre}, soy el asistente de Movistar. Te llamo para contarte de "
+            f"{oferta}. ¿Me permites un par de minutos para explicarte el beneficio?"
+        )
+    return (
+        f"Hola {nombre}, soy el asistente de Movistar. ¿Tienes un minuto para revisar "
+        "cómo ahorrar en tu plan de hoy?"
+    )
 
 
 class CallSession:
@@ -149,6 +173,9 @@ class P2PWebRTCProvider:
         sess.pending_candidates = []
         await self._send(sess.asesor_ws, {"type": "status", "state": "active", "offering": offering})
 
+        # El bot arranca solo: saluda y presenta la oferta sin que nadie haga click.
+        asyncio.create_task(self._run_bot_opening(sess, db))
+
     async def route(self, sess, role, msg, db=None):
         kind = msg.get("type")
         if kind == "offer" and role == "asesor":
@@ -174,6 +201,30 @@ class P2PWebRTCProvider:
                 asyncio.create_task(self._run_copilot(sess, text, speaker, db))
         elif kind == "end":
             await self.end(sess, reason=msg.get("reason") or "ended", db=db)
+
+    async def _run_bot_opening(self, sess, db=None):
+        """El agente abre la llamada solo: saluda y presenta la oferta (hablada)."""
+        prompt = (
+            "Eres Nexabot, el agente de voz de Movistar. Abre la llamada saludando al "
+            "cliente por su nombre y presentando la oferta en 2 o 3 frases cortas y "
+            "naturales, como si hablaras. Termina con una pregunta corta para iniciar "
+            "la conversacion. No uses comillas ni viñetas."
+        )
+        try:
+            result = await chat_engine.generate_nexabot_reply(sess.ctx, prompt)
+        except Exception:
+            result = {"reply": "", "source": "local"}
+        text = _clean_speech(result["reply"]) or _default_opening(sess.ctx)
+        await self._send(sess.cliente_ws, {"type": "bot_speech", "text": text, "source": result["source"], "kind": "opening"})
+        await self._send(sess.asesor_ws, {
+            "type": "copilot",
+            "speaker": "bot",
+            "objection": None,
+            "quote": "El bot abrió la llamada",
+            "suggestion": text,
+            "source": result["source"],
+            "offering": None,
+        })
 
     async def _run_copilot(self, sess, text, speaker="cliente", db=None):
         now = time.time()
@@ -242,6 +293,16 @@ class P2PWebRTCProvider:
             "source": result["source"],
             "offering": offering,
         })
+
+        # El bot responde la objecion hablada al cliente (agente de voz).
+        speech = _clean_speech(result["reply"])
+        if speech:
+            await self._send(sess.cliente_ws, {
+                "type": "bot_speech",
+                "text": speech,
+                "source": result["source"],
+                "kind": "response",
+            })
 
     async def end(self, sess, reason="ended", db=None):
         if sess.state == "ended":

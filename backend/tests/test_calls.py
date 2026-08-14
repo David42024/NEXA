@@ -25,11 +25,11 @@ def _start(client, client_id="C00001"):
     return token, resp.json()
 
 
-def _recv_until(ws, *types):
-    """Consume mensajes hasta encontrar uno de los tipos pedidos."""
+def _recv_until(ws, *types, predicate=None):
+    """Consume mensajes hasta encontrar uno de los tipos pedidos (y que cumpla el predicado)."""
     while True:
         evt = ws.receive_json()
-        if evt["type"] in types:
+        if evt["type"] in types and (predicate is None or predicate(evt)):
             return evt
 
 
@@ -70,20 +70,45 @@ def test_ws_relay_de_senalizacion(client):
             asesor_ws.receive_json()  # status dialing
             asesor_ws.send_json({"type": "offer", "sdp": "sdp-asesor-1"})
 
-            offer = cliente_ws.receive_json()
+            offer = _recv_until(cliente_ws, "offer")
             assert offer == {"type": "offer", "sdp": "sdp-asesor-1"}
 
             cliente_ws.send_json({"type": "answer", "sdp": "sdp-cliente-1"})
-            answer = asesor_ws.receive_json()
+            answer = _recv_until(asesor_ws, "answer")
             assert answer == {"type": "answer", "sdp": "sdp-cliente-1"}
 
             asesor_ws.send_json({"type": "candidate", "candidate": {"candidate": "c-asesor", "sdpMid": "0"}})
-            cand = cliente_ws.receive_json()
+            cand = _recv_until(cliente_ws, "candidate")
             assert cand["type"] == "candidate" and cand["candidate"]["candidate"] == "c-asesor"
 
             cliente_ws.send_json({"type": "candidate", "candidate": {"candidate": "c-cliente", "sdpMid": "0"}})
-            cand = asesor_ws.receive_json()
+            cand = _recv_until(asesor_ws, "candidate")
             assert cand["type"] == "candidate" and cand["candidate"]["candidate"] == "c-cliente"
+
+
+def test_ws_bot_abre_la_llamada(client, monkeypatch):
+    """Al aceptar el cliente, el bot saluda solo: bot_speech al cliente + copilot al asesor."""
+    async def fake_reply(ctx, message):
+        return {"reply": "Hola Ana, soy Nexabot de Movistar.", "source": "groq"}
+    monkeypatch.setattr("app.services.call_provider.chat_engine.generate_nexabot_reply", fake_reply)
+
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            # El bot habla en el lado del cliente sin ningun click.
+            speech = _recv_until(cliente_ws, "bot_speech")
+            assert speech["kind"] == "opening"
+            assert "Hola Ana" in speech["text"]
+
+            # El asesor ve el saludo del bot en su panel.
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("speaker") == "bot")
+            assert copilot["suggestion"]
 
 
 def test_ws_stt_dispara_copilot(client, monkeypatch):
@@ -110,7 +135,7 @@ def test_ws_stt_dispara_copilot(client, monkeypatch):
             stt = _recv_until(asesor_ws, "stt")
             assert stt["text"] == "me parece muy caro"
 
-            copilot = _recv_until(asesor_ws, "copilot")
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("objection") is not None)
             assert copilot["objection"]["type"] == "precio"
             assert copilot["quote"] == "me parece muy caro"
             assert copilot["suggestion"]
@@ -144,7 +169,7 @@ def test_ws_stt_del_asesor_genera_copilot_asesor(client, monkeypatch):
             assert stt["speaker"] == "asesor"
             assert stt["text"] == "le baja su factura a S/ 100"
 
-            copilot = _recv_until(asesor_ws, "copilot")
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("speaker") == "asesor")
             assert copilot["speaker"] == "asesor"
             assert copilot["objection"] is None
             assert copilot["suggestion"]
@@ -191,7 +216,7 @@ def test_ws_avanza_e2e_en_tiempo_real(client, session, monkeypatch):
 
             # 2) El cliente objeta -> objection / objection_status
             cliente_ws.send_json({"type": "stt", "text": "me parece muy caro", "final": True})
-            copilot = _recv_until(asesor_ws, "copilot")
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("offering") is not None)
             assert copilot["offering"]["stage"] == "objection"
             assert copilot["offering"]["objection_status"] == "rebate"
 

@@ -127,6 +127,13 @@ export default function LiveCallPanel({
         responder.
       </p>
 
+      {!call.sttSupported && (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          La transcripción de voz requiere Chrome o Edge: en este navegador el bot no
+          podrá escuchar la llamada.
+        </p>
+      )}
+
       <audio ref={audioRef} autoPlay className="hidden" />
 
       {call.phase === 'idle' && (
@@ -240,6 +247,16 @@ export default function LiveCallPanel({
                 <FileDown className="h-4 w-4" />
                 Descargar reporte PDF del flujo
               </button>
+            )}
+            {call.recordingUrl && (
+              <a
+                href={call.recordingUrl}
+                download={`llamada-${clientId}.webm`}
+                className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-500/20 dark:border-cyan-400/30 dark:text-cyan-300"
+              >
+                <FileDown className="h-4 w-4" />
+                Descargar audio · {fmtDuration(call.duration)}
+              </a>
             )}
             <button onClick={call.reset} className="btn-secondary w-full text-xs">
               Nueva llamada
