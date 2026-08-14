@@ -1,5 +1,5 @@
 # Render Blueprint — backend FastAPI (soporta WebSockets para la llamada en vivo).
-# Frontend se despliega en Vercel; base de datos en Supabase (PostgreSQL).
+# Frontend se despliega en Vercel; base de datos en Neon (PostgreSQL serverless).
 #
 # Uso: sube este repo a GitHub y crea un Blueprint en Render apuntando a
 # `render.yaml`, o crea un Web Service manual con rootDir=backend.
@@ -18,10 +18,9 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      # En Supabase: Settings > Database > Connection string (URI). Usa la de
-      # "Transaction pooler" (puerto 6543) o la directa (5432). Agrega
-      # ?sslmode=require. Ej:
-      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require
+      # En Neon: copia la connection string del dashboard (host *.neon.tech),
+      # base neondb. Agrega ?sslmode=require. Ej:
+      #   postgresql://user:password@ep-xxxx-yyyy-zzzz.us-east-2.aws.neon.tech/neondb?sslmode=require
       - key: DATABASE_URL
         sync: false
       # Origen del frontend en Vercel, separado por coma (sin "*" en produccion).

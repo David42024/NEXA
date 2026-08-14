@@ -24,12 +24,14 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     op.add_column('offerings', sa.Column('objection_status', sa.String(length=20), nullable=True))
-    op.execute("UPDATE offerings SET objection_status = 'rebate' WHERE objection_handled = 1")
+    # `TRUE` es portable: SQLite almacena boolean como 0/1 y acepta TRUE/FALSE;
+    # Postgres no compara boolean = integer.
+    op.execute("UPDATE offerings SET objection_status = 'rebate' WHERE objection_handled = TRUE")
     op.drop_column('offerings', 'objection_handled')
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     op.add_column('offerings', sa.Column('objection_handled', sa.Boolean(), nullable=True))
-    op.execute("UPDATE offerings SET objection_handled = 1 WHERE objection_status = 'rebate'")
+    op.execute("UPDATE offerings SET objection_handled = TRUE WHERE objection_status = 'rebate'")
     op.drop_column('offerings', 'objection_status')

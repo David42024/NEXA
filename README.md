@@ -14,7 +14,7 @@ backend, frontend, base de datos y datos sintéticos de demo.
 - **Backend:** FastAPI (Python) + SQLAlchemy + JWT
 - **Base de datos:** PostgreSQL en producción (SQLite por defecto en local, sin configuración extra)
 - **IA generativa (speech):** Grok API (primary) → Gemini/HuggingFace (fallback) → plantilla local (contingencia final)
-- **Infraestructura:** Vercel (frontend) + Render (backend, WebSockets para la llamada en vivo) + Supabase (PostgreSQL)
+- **Infraestructura:** Vercel (frontend) + Render (backend, WebSockets para la llamada en vivo) + Neon (PostgreSQL)
 
 ## Estructura
 
@@ -105,24 +105,25 @@ Y en `backend/.env`:
 DATABASE_URL=postgresql://usuario:password@localhost:5432/nexa
 ```
 
-## Despliegue en producción (Vercel + Render + Supabase)
+## Despliegue en producción (Vercel + Render + Neon)
 
 La llamada WebRTC y el copilot en vivo usan WebSockets, por lo que el backend
 NO puede vivir en Vercel (funciones serverless sin WebSocket en Python). El
 backend va en **Render** (soporta WebSockets), el frontend en **Vercel** y la
-base de datos en **Supabase** (PostgreSQL).
+base de datos en **Neon** (PostgreSQL serverless).
 
-### 1. Base de datos (Supabase)
+### 1. Base de datos (Neon)
 
-1. Crea un proyecto en [supabase.com](https://supabase.com).
-2. En **Settings → Database → Connection string (URI)**, copia la URL (usa la de
-   *Transaction pooler*, puerto 6543) y agrégale `?sslmode=require` al final.
-   Ejemplo:
+1. Crea un proyecto en [neon.tech](https://neon.tech) (plan gratis es suficiente).
+2. En el dashboard copia la **connection string** (usuario + password + host
+   `*.neon.tech`, base `neondb`). Ejemplo:
    ```
-   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?sslmode=require
+   postgresql://user:password@ep-xxxx-yyyy-zzzz.us-east-2.aws.neon.tech/neondb?sslmode=require
    ```
 3. Guarda esa URL; se usará como `DATABASE_URL`. El código la normaliza
-   automáticamente a `postgresql+psycopg2://`.
+   automáticamente a `postgresql+psycopg2://`. Si tu plan usa **pooling**,
+   puedes usar el host `-pooler` (mismo formato), pero para un solo web
+   service la conexión directa es suficiente.
 
 ### 2. Backend (Render)
 
@@ -134,7 +135,7 @@ base de datos en **Supabase** (PostgreSQL).
 3. Variables de entorno:
    | Variable | Valor |
    |----------|-------|
-   | `DATABASE_URL` | URL de Supabase (paso 1) |
+   | `DATABASE_URL` | URL de Neon (paso 1) |
    | `JWT_SECRET` | clave fuerte (p.ej. `openssl rand -hex 32`) |
    | `CORS_ALLOWED_ORIGINS` | dominio del frontend en Vercel (sin `*`) |
    | `ENVIRONMENT` | `production` |

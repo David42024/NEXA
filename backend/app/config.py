@@ -7,8 +7,9 @@ load_dotenv()
 def _normalize_db_url(url: str) -> str:
     """Normaliza la URL de la base de datos para SQLAlchemy con psycopg2.
 
-    Supabase entrega `postgres://` o `postgresql://`; SQLAlchemy necesita el
-    driver explícito (`postgresql+psycopg2://`). SQLite se usa tal cual.
+    Neon (y Supabase) entregan `postgres://` o `postgresql://`; SQLAlchemy
+    necesita el driver explícito (`postgresql+psycopg2://`). SQLite se usa tal
+    cual.
     """
     if url.startswith("postgres://"):
         return "postgresql+psycopg2://" + url[len("postgres://"):]
