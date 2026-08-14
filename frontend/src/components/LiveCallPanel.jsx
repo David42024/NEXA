@@ -11,6 +11,7 @@ import {
   Timer,
   FileDown,
   Loader2,
+  Bot,
 } from 'lucide-react'
 import { useAsesorCall, fmtDuration } from '../hooks/useCall'
 
@@ -123,8 +124,8 @@ export default function LiveCallPanel({
       </div>
       <p className="mb-4 text-xs text-slate-400">
         Llamada WebRTC peer-to-peer: el asesor y el "cliente" hablan en vivo entre
-        navegadores. La IA escucha la voz de ambos (Chrome/Edge) y sugiere cómo
-        responder.
+        navegadores. Elige en vivo quién conduce: el bot (habla solo) o el asesor
+        (la IA solo sugiere). La IA escucha la voz de ambos (Chrome/Edge).
       </p>
 
       {!call.sttSupported && (
@@ -135,6 +136,35 @@ export default function LiveCallPanel({
       )}
 
       <audio ref={audioRef} autoPlay className="hidden" />
+
+      {live && (
+        <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-navy-950/50">
+          <button
+            type="button"
+            onClick={() => call.switchMode('bot')}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+              call.mode === 'bot'
+                ? 'bg-cyan-500 text-white shadow-sm'
+                : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
+          >
+            <Bot className="h-3.5 w-3.5" />
+            Bot habla
+          </button>
+          <button
+            type="button"
+            onClick={() => call.switchMode('asesor')}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+              call.mode === 'asesor'
+                ? 'bg-navy-800 text-white shadow-sm dark:bg-white dark:text-navy-900'
+                : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
+          >
+            <Phone className="h-3.5 w-3.5" />
+            Asesor habla
+          </button>
+        </div>
+      )}
 
       {call.phase === 'idle' && (
         <>

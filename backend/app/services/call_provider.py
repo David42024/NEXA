@@ -114,6 +114,7 @@ class CallSession:
         self.state = "dialing"  # dialing | active | ended
         self.started_at = None
         self.ended_at = None
+        self.mode = "bot"  # bot | asesor: quien conduce la llamada (cambiable en vivo)
         self.last_ai_at = {}  # cooldown por hablante (cliente / asesor)
 
 
@@ -172,6 +173,7 @@ class P2PWebRTCProvider:
             await self._send(target, {"type": "candidate", "candidate": pc["candidate"]})
         sess.pending_candidates = []
         await self._send(sess.asesor_ws, {"type": "status", "state": "active", "offering": offering})
+        await self._send(ws, {"type": "mode", "mode": sess.mode})
 
         # El bot arranca solo: saluda y presenta la oferta sin que nadie haga click.
         asyncio.create_task(self._run_bot_opening(sess, db))
@@ -199,28 +201,47 @@ class P2PWebRTCProvider:
             await self._send(sess.asesor_ws, {"type": "stt", "speaker": speaker, "text": text})
             if msg.get("final"):
                 asyncio.create_task(self._run_copilot(sess, text, speaker, db))
+        elif kind == "mode":
+            # El asesor decide en vivo si habla el (modo asesor) o el bot (modo bot).
+            mode = msg.get("mode")
+            if mode in ("bot", "asesor"):
+                sess.mode = mode
+                await self._send(sess.asesor_ws, {"type": "mode", "mode": sess.mode})
+                await self._send(sess.cliente_ws, {"type": "mode", "mode": sess.mode})
+                if mode == "bot":
+                    asyncio.create_task(self._run_bot_opening(sess, db, continuation=True))
         elif kind == "end":
             await self.end(sess, reason=msg.get("reason") or "ended", db=db)
 
-    async def _run_bot_opening(self, sess, db=None):
-        """El agente abre la llamada solo: saluda y presenta la oferta (hablada)."""
-        prompt = (
-            "Eres Nexabot, el agente de voz de Movistar. Abre la llamada saludando al "
-            "cliente por su nombre y presentando la oferta en 2 o 3 frases cortas y "
-            "naturales, como si hablaras. Termina con una pregunta corta para iniciar "
-            "la conversacion. No uses comillas ni viñetas."
-        )
+    async def _run_bot_opening(self, sess, db=None, continuation=False):
+        """El agente abre (o retoma) la llamada: habla solo en modo bot."""
+        if sess.mode != "bot":
+            return
+        if continuation:
+            prompt = (
+                "Eres Nexabot, el agente de voz de Movistar. El asesor te devuelve la "
+                "conversacion. Retomala con 2 frases breves y naturales para seguir "
+                "ayudando al cliente. Sin comillas ni viñetas."
+            )
+        else:
+            prompt = (
+                "Eres Nexabot, el agente de voz de Movistar. Abre la llamada saludando al "
+                "cliente por su nombre y presentando la oferta en 2 o 3 frases cortas y "
+                "naturales, como si hablaras. Termina con una pregunta corta para iniciar "
+                "la conversacion. No uses comillas ni viñetas."
+            )
         try:
             result = await chat_engine.generate_nexabot_reply(sess.ctx, prompt)
         except Exception:
             result = {"reply": "", "source": "local"}
         text = _clean_speech(result["reply"]) or _default_opening(sess.ctx)
-        await self._send(sess.cliente_ws, {"type": "bot_speech", "text": text, "source": result["source"], "kind": "opening"})
+        kind = "response" if continuation else "opening"
+        await self._send(sess.cliente_ws, {"type": "bot_speech", "text": text, "source": result["source"], "kind": kind})
         await self._send(sess.asesor_ws, {
             "type": "copilot",
             "speaker": "bot",
             "objection": None,
-            "quote": "El bot abrió la llamada",
+            "quote": "El bot abrió la llamada" if not continuation else "El bot retomó la llamada",
             "suggestion": text,
             "source": result["source"],
             "offering": None,
@@ -294,9 +315,9 @@ class P2PWebRTCProvider:
             "offering": offering,
         })
 
-        # El bot responde la objecion hablada al cliente (agente de voz).
+        # El bot responde la objecion hablada al cliente SOLO en modo bot (agente de voz).
         speech = _clean_speech(result["reply"])
-        if speech:
+        if speech and sess.mode == "bot":
             await self._send(sess.cliente_ws, {
                 "type": "bot_speech",
                 "text": speech,

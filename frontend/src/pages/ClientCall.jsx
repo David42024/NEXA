@@ -97,7 +97,11 @@ export default function ClientCall() {
             <p className="mt-3 font-display text-4xl font-bold tabular-nums text-white">
               {fmtDuration(call.duration)}
             </p>
-            <p className="mt-2 text-xs text-slate-400">Hablando con {firstName} (Asesor Movistar)</p>
+            <p className="mt-2 text-xs text-slate-400">
+              {call.mode === 'bot'
+                ? 'Nexabot (IA de Movistar) está conduciendo la llamada'
+                : `Hablando con ${firstName} (Asesor Movistar)`}
+            </p>
 
             {sttSupported && (
               <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-cyan-300">

@@ -176,6 +176,42 @@ def test_ws_stt_del_asesor_genera_copilot_asesor(client, monkeypatch):
             assert "asesor acaba de decir" in captured["message"].lower()
 
 
+def test_ws_toggle_modo_asesor_y_bot(client, monkeypatch):
+    """El asesor intercambia en vivo quien habla: bot (habla solo) o asesor (solo sugiere)."""
+    async def fake_reply(ctx, message):
+        return {"reply": "Respuesta del agente", "source": "groq"}
+    monkeypatch.setattr("app.services.call_provider.chat_engine.generate_nexabot_reply", fake_reply)
+
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            # Modo por defecto: bot. Saluda al aceptar.
+            _recv_until(cliente_ws, "bot_speech")
+            _recv_until(asesor_ws, "status")  # active
+
+            # El asesor pasa a modo asesor: el bot deja de hablar.
+            asesor_ws.send_json({"type": "mode", "mode": "asesor"})
+            assert _recv_until(cliente_ws, "mode")["mode"] == "asesor"
+
+            # El cliente objeta: el asesor recibe la sugerencia, el bot NO habla.
+            cliente_ws.send_json({"type": "stt", "text": "me parece muy caro", "final": True})
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("objection") is not None)
+            assert copilot["objection"]["type"] == "precio"
+            assert copilot["suggestion"]
+
+            # Vuelve a modo bot: el bot retoma la llamada y habla.
+            asesor_ws.send_json({"type": "mode", "mode": "bot"})
+            assert _recv_until(cliente_ws, "mode")["mode"] == "bot"
+            speech = _recv_until(cliente_ws, "bot_speech")
+            assert speech["text"]
+
+
 def test_ws_cierra_llamada_y_notifica(client):
     token, data = _start(client)
     call_id = data["call_id"]

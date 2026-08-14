@@ -99,6 +99,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   const [callInfo, setCallInfo] = useState(null)
   const [muted, setMuted] = useState(false)
   const [recordingUrl, setRecordingUrl] = useState(null)
+  const [mode, setMode] = useState('bot') // bot | asesor
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
 
@@ -244,6 +245,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
         } else if (msg.type === 'copilot') {
           onCopilotEvent?.(msg)
+        } else if (msg.type === 'mode') {
+          if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
         } else if (msg.type === 'ended') {
           endedRef.current = true
           stopTimer()
@@ -300,7 +303,13 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     stopTimer()
   }
 
-  return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, start, toggleMute, hangup, reset }
+  function switchMode(next) {
+    if (next === mode || (next !== 'bot' && next !== 'asesor')) return
+    setMode(next)
+    wsRef.current?.send(JSON.stringify({ type: 'mode', mode: next }))
+  }
+
+  return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, mode, switchMode, start, toggleMute, hangup, reset }
 }
 
 /**
@@ -313,6 +322,7 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   const [muted, setMuted] = useState(false)
   const [botText, setBotText] = useState('')
   const [botSpeaking, setBotSpeaking] = useState(false)
+  const [mode, setMode] = useState('bot') // bot | asesor
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
 
@@ -434,6 +444,8 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
         try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
       } else if (msg.type === 'bot_speech') {
         speakBot(msg.text)
+      } else if (msg.type === 'mode') {
+        if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
       } else if (msg.type === 'ended') {
         endedRef.current = true
         stopTimer()
@@ -472,5 +484,5 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
     setPhaseAll('ended')
   }
 
-  return { phase, error, duration, muted, botText, botSpeaking, sttSupported, answer, decline, toggleMute, hangup }
+  return { phase, error, duration, muted, botText, botSpeaking, mode, sttSupported, answer, decline, toggleMute, hangup }
 }
