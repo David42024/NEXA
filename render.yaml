@@ -26,7 +26,7 @@ services:
       # Origen del frontend en Vercel, separado por coma (sin "*" en produccion).
       - key: CORS_ALLOWED_ORIGINS
         sync: false
-      - key: GROK_API_KEY
+      - key: GROQ_API_KEY
         sync: false
       - key: FALLBACK_API_KEY
         sync: false
