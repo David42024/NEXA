@@ -13,6 +13,14 @@ class Settings:
 
     GROK_API_KEY: str = os.getenv("GROK_API_KEY", "")
     GROK_API_URL: str = os.getenv("GROK_API_URL", "https://api.x.ai/v1/chat/completions")
+    # Proveedor primario de IA: Groq (OpenAI-compatible). GROQ_* es la fuente de
+    # verdad; GROK_* se lee como compatibilidad hacia atras (la clave gsk_ es de Groq).
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY") or os.getenv("GROK_API_KEY", "")
+    GROQ_API_URL: str = os.getenv(
+        "GROQ_API_URL",
+        os.getenv("GROK_API_URL", "https://api.groq.com/openai/v1/chat/completions"),
+    )
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     FALLBACK_API_KEY: str = os.getenv("FALLBACK_API_KEY", "")
     FALLBACK_PROVIDER: str = os.getenv("FALLBACK_PROVIDER", "gemini")
     GEMINI_API_URL: str = os.getenv(
@@ -21,7 +29,16 @@ class Settings:
     )
 
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "demo")
-    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", 50))
+    RATE_LIMIT_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_PER_MINUTE", 300))
+    # Nota: el limite se aplica por (IP + ruta), no por IP global.
+
+    # Llamada en vivo: tiempo entre respuestas del cliente simulado (SSE/WebSocket).
+    # En tests se baja para que la suite no tarde.
+    LIVE_STEP_DELAY_SECONDS: float = float(os.getenv("LIVE_STEP_DELAY_SECONDS", 2.5))
+
+    # Llamada WebRTC: cooldown entre detecciones de objecion del copilot (seg).
+    # Evita bombardear la IA si el cliente habla seguido; en tests se fija a 0.
+    CALL_AI_COOLDOWN_SECONDS: float = float(os.getenv("CALL_AI_COOLDOWN_SECONDS", 3.5))
 
     # CORS: lista de origenes permitidos (comma-separated en CORS_ALLOWED_ORIGINS)
     CORS_ALLOWED_ORIGINS: list = [

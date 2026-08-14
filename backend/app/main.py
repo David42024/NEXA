@@ -9,7 +9,7 @@ from sqlalchemy import inspect
 
 from app.config import settings
 from app.database import engine, SessionLocal
-from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin
+from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls
 from app.services.config_service import ensure_default_config
 
 logging.basicConfig(level=logging.INFO)
@@ -57,7 +57,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Rate limiting simple en memoria (50 req/min por IP) ---
+# --- Rate limiting simple en memoria (por IP + ruta, ver config) ---
+# El bucket es por (IP, ruta): una rafaga de refrescos en un endpoint no bloquea
+# el resto (evita que un pico en /api/funnel/daily tumbe tambien el login).
 _request_log = defaultdict(deque)
 
 
@@ -65,7 +67,8 @@ _request_log = defaultdict(deque)
 async def rate_limit_middleware(request: Request, call_next):
     ip = request.client.host if request.client else "unknown"
     now = time.time()
-    window = _request_log[ip]
+    key = f"{ip}:{request.url.path}"
+    window = _request_log[key]
     while window and now - window[0] > 60:
         window.popleft()
     if len(window) >= settings.RATE_LIMIT_PER_MINUTE:
@@ -81,6 +84,10 @@ app.include_router(speech.router)
 app.include_router(interactions.router)
 app.include_router(feedback.router)
 app.include_router(funnel.router)
+app.include_router(e2e.router)
+app.include_router(live.router)
+app.include_router(nexabot.router)
+app.include_router(calls.router)
 app.include_router(admin.router)
 
 

@@ -1,4 +1,4 @@
-"""Tests del motor de speech (cadena de contingencia: grok -> fallback -> plantilla)."""
+"""Tests del motor de speech (cadena de contingencia: groq -> gemini -> plantilla local)."""
 from app.services import speech_engine
 
 PAYLOAD = {
@@ -12,53 +12,53 @@ PAYLOAD = {
 }
 
 
-async def test_camino_1_grok_ok(monkeypatch):
+async def test_camino_1_groq_ok(monkeypatch):
     fallback_called = []
 
-    async def fake_grok(prompt):
-        return "Speech generado por Grok."
+    async def fake_groq(prompt):
+        return "Speech generado por Groq."
 
-    async def fake_fallback(prompt):
+    async def fake_gemini(prompt):
         fallback_called.append(prompt)
         return "No deberia llamarse."
 
-    monkeypatch.setattr(speech_engine, "_call_grok", fake_grok)
-    monkeypatch.setattr(speech_engine, "_call_fallback", fake_fallback)
+    monkeypatch.setattr(speech_engine, "_call_groq", fake_groq)
+    monkeypatch.setattr(speech_engine, "_call_gemini", fake_gemini)
 
     result = await speech_engine.generate_speech_variants(PAYLOAD)
-    assert result["source"] == "grok"
+    assert result["source"] == "groq"
     assert len(result["variantes"]) == 2
-    assert all(v["texto"] == "Speech generado por Grok." for v in result["variantes"])
+    assert all(v["texto"] == "Speech generado por Groq." for v in result["variantes"])
     assert fallback_called == []
 
 
-async def test_camino_2_grok_falla_fallback_ok(monkeypatch):
-    async def fake_grok(prompt):
-        raise RuntimeError("GROK_API_KEY no configurada")
+async def test_camino_2_groq_falla_gemini_ok(monkeypatch):
+    async def fake_groq(prompt):
+        raise RuntimeError("GROQ_API_KEY no configurada")
 
-    async def fake_fallback(prompt):
-        return "Speech generado por el fallback."
+    async def fake_gemini(prompt):
+        return "Speech generado por Gemini."
 
-    monkeypatch.setattr(speech_engine, "_call_grok", fake_grok)
-    monkeypatch.setattr(speech_engine, "_call_fallback", fake_fallback)
+    monkeypatch.setattr(speech_engine, "_call_groq", fake_groq)
+    monkeypatch.setattr(speech_engine, "_call_gemini", fake_gemini)
 
     result = await speech_engine.generate_speech_variants(PAYLOAD)
-    assert result["source"] == "fallback"
-    assert all(v["texto"] == "Speech generado por el fallback." for v in result["variantes"])
+    assert result["source"] == "gemini"
+    assert all(v["texto"] == "Speech generado por Gemini." for v in result["variantes"])
 
 
 async def test_camino_3_ambos_fallan_usa_plantilla_local(monkeypatch):
-    async def fake_grok(prompt):
-        raise RuntimeError("boom grok")
+    async def fake_groq(prompt):
+        raise RuntimeError("boom groq")
 
-    async def fake_fallback(prompt):
-        raise RuntimeError("boom fallback")
+    async def fake_gemini(prompt):
+        raise RuntimeError("boom gemini")
 
-    monkeypatch.setattr(speech_engine, "_call_grok", fake_grok)
-    monkeypatch.setattr(speech_engine, "_call_fallback", fake_fallback)
+    monkeypatch.setattr(speech_engine, "_call_groq", fake_groq)
+    monkeypatch.setattr(speech_engine, "_call_gemini", fake_gemini)
 
     result = await speech_engine.generate_speech_variants(PAYLOAD)
-    assert result["source"] == "generic"
+    assert result["source"] == "local"
     assert len(result["variantes"]) == 2
     for i, v in enumerate(result["variantes"]):
         kind = "consultiva" if i == 0 else "directa"

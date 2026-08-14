@@ -10,6 +10,7 @@ from app.services.config_service import (
     ensure_default_config,
     get_thresholds,
     set_config_value,
+    get_config,
     log_event,
 )
 
@@ -165,3 +166,51 @@ def get_kpis(db: Session = Depends(get_db), _user=Depends(require_permission("vi
         "conversion_pct": conversion,
         "valor_potencial_soles": round(elegibles_mt * 22.3, 2),
     }
+
+
+# ---------- Desempeño de asesores ----------
+@router.get("/asesores")
+def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission("view_funnel"))):
+    """Panel de supervision: ventas del mes por asesor vs su meta (cumplido o no).
+
+    Las ventas son ofrecimientos E2E cerrados (stage=result, result=accepted)
+    del mes en curso. La meta se lee de la config en caliente (META_VENTAS_MENSUAL).
+    """
+    from datetime import date, datetime
+    from sqlalchemy import func
+
+    month_start = datetime.combine(date.today().replace(day=1), datetime.min.time())
+    config = get_config(db)
+    meta = int(float(config.get("META_VENTAS_MENSUAL", 4)))
+
+    rows = []
+    for a in db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all():
+        ventas = (
+            db.query(func.count(models.Offering.id))
+            .filter(
+                models.Offering.asesor_id == a.id,
+                models.Offering.stage == "result",
+                models.Offering.result == "accepted",
+                models.Offering.created_at >= month_start,
+            )
+            .scalar()
+            or 0
+        )
+        ofrecimientos = (
+            db.query(func.count(models.Offering.id))
+            .filter(models.Offering.asesor_id == a.id, models.Offering.created_at >= month_start)
+            .scalar()
+            or 0
+        )
+        rows.append({
+            "id": a.id,
+            "name": a.name,
+            "email": a.email,
+            "ventas": ventas,
+            "ofrecimientos": ofrecimientos,
+            "meta_ventas": meta,
+            "cumplido": ventas >= meta,
+            "progreso": round((ventas / meta) * 100) if meta else 0,
+        })
+    rows.sort(key=lambda r: -r["ventas"])
+    return {"mes": month_start.strftime("%Y-%m"), "meta_ventas": meta, "asesores": rows}

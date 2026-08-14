@@ -43,6 +43,13 @@ class ClientSummary(BaseModel):
     score: int = 0
 
 
+class ClientListResponse(BaseModel):
+    total: int
+    page: int
+    page_size: int
+    results: List[ClientSummary]
+
+
 class ClientSearchResult(BaseModel):
     results: List[ClientSummary]
     # Distinguir "match exacto por ID" de "sugerencias" (spec 10.5)
@@ -72,6 +79,8 @@ class OfferRecommendation(BaseModel):
     score: float
     shap_values: Dict[str, float]
     low_probability: bool = False
+    precio: Optional[float] = None
+    ahorro_pct: Optional[float] = None
 
 
 class RecommendationResponse(BaseModel):
@@ -100,7 +109,18 @@ class SpeechVariant(BaseModel):
 class SpeechResponse(BaseModel):
     client_id: str
     variantes: List[SpeechVariant]
-    source: str  # grok | fallback | generic
+    source: str  # groq | gemini | local
+
+
+# ---------- Nexabot (asistente comercial) ----------
+class NexabotRequest(BaseModel):
+    client_id: str
+    message: str
+
+
+class NexabotResponse(BaseModel):
+    reply: str
+    source: str  # groq | gemini | local
 
 
 # ---------- Interacciones ----------
@@ -132,6 +152,69 @@ class FunnelStage(BaseModel):
 class FunnelResponse(BaseModel):
     stages: List[FunnelStage]
     conversion_rate: float
+
+
+# ---------- Funnel E2E (seguimiento del ofrecimiento) ----------
+class OfferingCreate(BaseModel):
+    client_id: str
+    offer_id: Optional[int] = None
+    channel: Optional[str] = None
+    message_text: Optional[str] = None
+
+
+class OfferingUpdate(BaseModel):
+    stage: Optional[str] = None
+    channel: Optional[str] = None
+    message_text: Optional[str] = None
+    contact_status: Optional[str] = None
+    objection_handled: Optional[bool] = None
+    speech_rebate: Optional[str] = None
+    evidence_type: Optional[str] = None
+    evidence_ref: Optional[str] = None
+    result: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+class OfferingOut(BaseModel):
+    id: int
+    client_id: str
+    offer_id: Optional[int] = None
+    offer_name: Optional[str] = None
+    asesor_id: Optional[int] = None
+    channel: Optional[str] = None
+    message_text: Optional[str] = None
+    stage: str
+    contact_status: Optional[str] = None
+    objection_handled: bool = False
+    speech_rebate: Optional[str] = None
+    evidence_type: Optional[str] = None
+    evidence_ref: Optional[str] = None
+    result: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class E2EStage(BaseModel):
+    key: str
+    label: str
+    value: int
+    pct_of_previous: Optional[float] = None
+
+
+class E2EBreakdown(BaseModel):
+    label: str
+    value: int
+
+
+class FunnelE2EReport(BaseModel):
+    stages: List[E2EStage]
+    total: int
+    channels: List[E2EBreakdown]
+    contact_status: List[E2EBreakdown]
+    objections: Dict[str, int]
+    evidence_types: List[E2EBreakdown]
+    results: List[E2EBreakdown]
+    rejection_reasons: List[E2EBreakdown]
 
 
 # ---------- Solicitud de datos faltantes (10.3) ----------

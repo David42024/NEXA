@@ -8,6 +8,7 @@ import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import ClientSearch from './pages/ClientSearch.jsx'
 import ClientProfile from './pages/ClientProfile.jsx'
+import ClientCall from './pages/ClientCall.jsx'
 import Funnel from './pages/Funnel.jsx'
 import Admin from './pages/Admin.jsx'
 
@@ -58,6 +59,9 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* Página pública de la llamada entrante del "cliente" (WebRTC) */}
+      <Route path="/llamada/:callId" element={<ClientCall />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

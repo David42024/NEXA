@@ -14,6 +14,8 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("JWT_SECRET", "test_secret_not_default")
 os.environ.setdefault("RATE_LIMIT_PER_MINUTE", "100000")
 os.environ.setdefault("CORS_ALLOWED_ORIGINS", "*")
+os.environ.setdefault("LIVE_STEP_DELAY_SECONDS", "0.02")
+os.environ.setdefault("CALL_AI_COOLDOWN_SECONDS", "0")
 
 import pytest
 from fastapi.testclient import TestClient

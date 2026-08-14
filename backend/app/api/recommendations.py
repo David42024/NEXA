@@ -55,6 +55,8 @@ def generate_recommendation(
             score=r["score"],
             shap_values=r["shap_values"],
             low_probability=r["low_probability"],
+            precio=r.get("precio"),
+            ahorro_pct=r.get("ahorro_pct"),
         ))
     db.commit()
 

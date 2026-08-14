@@ -32,8 +32,8 @@ async def generate_speech(
 
     result = await speech_engine.generate_speech_variants(engine_payload)
 
-    # Bitacora: fallo de IA generativa cuando no se pudo usar Grok
-    if result["source"] != "grok":
+    # Bitacora: fallo de IA generativa cuando no se pudo usar Groq
+    if result["source"] != "groq":
         log_event(
             db,
             "ai_generative_failure",

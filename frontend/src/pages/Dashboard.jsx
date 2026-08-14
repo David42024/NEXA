@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
 import KpiCard from '../components/KpiCard.jsx'
+import ScoreBadge from '../components/ScoreBadge.jsx'
 
 function SearchIcon(props) {
   return (
@@ -63,12 +64,32 @@ function FunnelSkeleton() {
   )
 }
 
+function AsesoresSkeleton() {
+  return (
+    <div className="space-y-4 animate-pulse">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-full bg-slate-200 dark:bg-navy-700" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3.5 w-1/3 rounded bg-slate-200 dark:bg-navy-700" />
+            <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-navy-700" />
+          </div>
+          <div className="h-4 w-16 rounded bg-slate-200 dark:bg-navy-700" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const isAsesor = user?.role === 'asesor'
   const [kpis, setKpis] = useState(null)
   const [funnel, setFunnel] = useState(null)
   const [clients, setClients] = useState([])
+  const [asesores, setAsesores] = useState(null)
+  const [asesoresMeta, setAsesoresMeta] = useState(4)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [clientsError, setClientsError] = useState(false)
@@ -76,21 +97,28 @@ export default function Dashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const [kpiRes, funnelRes, clientsRes] = await Promise.all([
-          api.get('/api/admin/kpis').catch(() => ({ data: null })),
-          api.get('/api/funnel/daily').catch(() => ({ data: null })),
-          api.get('/api/clients/search?q=C0').catch(() => null),
-        ])
-        setKpis(kpiRes.data)
-        setFunnel(funnelRes.data)
-        setClients(clientsRes?.data?.results?.slice(0, 6) || [])
-        setClientsError(!clientsRes)
+        const kpiRes = api.get('/api/admin/kpis').catch(() => ({ data: null }))
+        // El funnel y el desempeño de asesores son métricas de supervisión: el asesor no los consume.
+        const funnelRes = isAsesor
+          ? Promise.resolve({ data: null })
+          : api.get('/api/funnel/daily').catch(() => ({ data: null }))
+        const asesoresRes = isAsesor
+          ? Promise.resolve({ data: null })
+          : api.get('/api/admin/asesores').catch(() => null)
+        const clientsRes = api.get('/api/clients/search?q=C0').catch(() => null)
+        const [k, f, a, c] = await Promise.all([kpiRes, funnelRes, asesoresRes, clientsRes])
+        setKpis(k.data)
+        setFunnel(f.data)
+        setAsesores(a?.data?.asesores || null)
+        setAsesoresMeta(a?.data?.meta_ventas ?? 4)
+        setClients(c?.data?.results?.slice(0, 6) || [])
+        setClientsError(!c)
       } finally {
         setLoading(false)
       }
     }
     load()
-  }, [])
+  }, [isAsesor])
 
   function handleSearch(e) {
     e.preventDefault()
@@ -140,10 +168,11 @@ export default function Dashboard() {
         <KpiCard icon="💰" label="Valor potencial" value={loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`} accent="navy" loading={loading} />
       </div>
 
-      {/* Clientes + Funnel */}
+      {/* Clientes / Asesores + Funnel */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Clientes priorizados */}
-        <section className={`animate-nexa-rise ${card} lg:col-span-2`}>
+        {isAsesor ? (
+        /* Clientes priorizados (vista asesor) */
+        <section className={`animate-nexa-rise ${card} lg:col-span-3`}>
           <div className="mb-4 flex items-center justify-between">
             <p className="label-eyebrow">Clientes priorizados</p>
             <button
@@ -187,12 +216,7 @@ export default function Dashboard() {
                         Elegible
                       </span>
                     )}
-                    <span
-                      title={`Score de prioridad ${c.score}/100`}
-                      className="rounded-md bg-navy-900/5 px-1.5 py-0.5 font-mono text-xs font-semibold text-navy-700 dark:bg-white/10 dark:text-cyan-300"
-                    >
-                      {c.score}
-                    </span>
+                    <ScoreBadge value={c.score} />
                     <span className="hidden text-sm font-medium text-cyan-600 transition-colors group-hover:text-cyan-500 sm:block dark:text-cyan-400">
                       Ver perfil →
                     </span>
@@ -202,10 +226,75 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+        ) : (
+        /* Desempeño de asesores (vista supervisor/admin) */
+        <section className={`animate-nexa-rise ${card} lg:col-span-2`}>
+          <div className="mb-4 flex items-center justify-between">
+            <p className="label-eyebrow">Desempeño de asesores · este mes</p>
+            <span className="text-xs text-slate-400">Meta: {asesoresMeta} ventas/mes</span>
+          </div>
 
-        {/* Funnel */}
+          {loading || !asesores ? (
+            <AsesoresSkeleton />
+          ) : asesores.length === 0 ? (
+            <p className="text-sm text-slate-400">No hay asesores registrados.</p>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-white/5">
+              {asesores.map((a) => (
+                <div key={a.id} className="flex items-center gap-3 py-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900/5 font-display text-sm font-semibold text-navy-800 dark:bg-white/10 dark:text-white">
+                    {a.name?.[0] || '?'}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-medium text-navy-900 dark:text-white">{a.name}</p>
+                      {a.cumplido ? (
+                        <span className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
+                          Cumplido
+                        </span>
+                      ) : (
+                        <span className="badge bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
+                          En curso
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
+                        <div
+                          className={`h-full rounded-full bg-gradient-to-r ${
+                            a.cumplido ? 'from-emerald-400 to-green-500' : 'from-cyan-400 to-sky-500'
+                          }`}
+                          style={{ width: `${Math.min(a.progreso, 100)}%`, transition: 'width 0.6s ease' }}
+                        />
+                      </div>
+                      <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {a.ventas}/{a.meta_ventas} ventas
+                      </span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="font-display text-lg font-bold text-navy-900 dark:text-white">{a.ventas}</p>
+                    <p className="text-xs text-slate-400">{a.ofrecimientos} ofrec.</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+        )}
+
+        {/* Funnel (solo supervisión) */}
+        {!isAsesor && (
         <section className={`animate-nexa-rise ${card} [animation-delay:60ms]`}>
-          <p className="mb-4 label-eyebrow">Funnel · últimos 7 días</p>
+          <div className="mb-4 flex items-center justify-between">
+            <p className="label-eyebrow">Funnel · últimos 7 días</p>
+            <button
+              onClick={() => navigate('/funnel')}
+              className="text-sm font-medium text-cyan-600 transition-colors hover:text-cyan-500 dark:text-cyan-400"
+            >
+              Ver funnel →
+            </button>
+          </div>
           {loading || !funnel ? (
             <FunnelSkeleton />
           ) : (
@@ -241,6 +330,7 @@ export default function Dashboard() {
             </div>
           )}
         </section>
+        )}
       </div>
     </div>
   )

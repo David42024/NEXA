@@ -1,0 +1,146 @@
+import React, { useEffect, useRef, useState } from 'react'
+import { useParams, useSearchParams, Link } from 'react-router-dom'
+import {
+  Phone,
+  PhoneCall,
+  PhoneOff,
+  Mic,
+  MicOff,
+  MessageSquareText,
+} from 'lucide-react'
+import { useClienteCall, fmtDuration } from '../hooks/useCall'
+
+export default function ClientCall() {
+  const { callId } = useParams()
+  const [searchParams] = useSearchParams()
+  const token = searchParams.get('token')
+  const nombre = searchParams.get('nombre') || 'Cliente NEXA'
+  const audioRef = useRef(null)
+
+  const call = useClienteCall({
+    callId,
+    clientToken: token || '',
+    onRemoteStream: (stream) => {
+      if (audioRef.current) {
+        audioRef.current.srcObject = stream
+        audioRef.current.play().catch(() => {})
+      }
+    },
+  })
+
+  const firstName = nombre.split(' ')[0]
+  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-navy-950 via-navy-900 to-navy-950 px-4 text-slate-200">
+      {/* Audio remoto del asesor (silencioso: el propio navegador lo mezcla) */}
+      <audio ref={audioRef} autoPlay className="hidden" />
+
+      <div className="mb-8 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-300">
+          <PhoneCall className="h-4 w-4" />
+        </div>
+        <span className="font-display text-sm font-bold tracking-wide text-white">NEXA · LLAMADA</span>
+      </div>
+
+      <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-xl backdrop-blur">
+        {call.phase === 'incoming' && (
+          <>
+            <p className="text-xs font-medium uppercase tracking-widest text-slate-400">
+              Llamada entrante
+            </p>
+            <h1 className="mt-3 font-display text-2xl font-bold text-white">{firstName}</h1>
+            <p className="mt-1 text-xs text-slate-400">Asesor de Movistar te está llamando</p>
+
+            <div className="mt-8 flex items-center justify-center gap-4">
+              <button
+                onClick={call.decline}
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-700 text-white transition-colors hover:bg-slate-600"
+                aria-label="Rechazar llamada"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+              <button
+                onClick={call.answer}
+                className="flex h-20 w-20 items-center justify-center rounded-full bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 transition-colors hover:bg-emerald-600"
+                aria-label="Contestar llamada"
+              >
+                <Phone className="h-8 w-8" />
+              </button>
+            </div>
+            <p className="mt-6 text-[11px] text-slate-500">
+              Contestar activa tu micrófono y el audio de la llamada.
+            </p>
+          </>
+        )}
+
+        {call.phase === 'connecting' && (
+          <div className="py-10">
+            <Phone className="mx-auto h-10 w-10 animate-pulse text-emerald-400" />
+            <p className="mt-4 text-sm text-slate-300">Conectando con el asesor…</p>
+          </div>
+        )}
+
+        {call.phase === 'active' && (
+          <>
+            <p className="flex items-center justify-center gap-1.5 text-xs font-medium text-emerald-400">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+              En llamada
+            </p>
+            <p className="mt-3 font-display text-4xl font-bold tabular-nums text-white">
+              {fmtDuration(call.duration)}
+            </p>
+            <p className="mt-2 text-xs text-slate-400">Hablando con {firstName} (Asesor Movistar)</p>
+
+            {sttSupported && (
+              <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-cyan-300">
+                <MessageSquareText className="h-3.5 w-3.5" />
+                Transcripción en vivo: la IA del asesor escucha tus objeciones
+              </p>
+            )}
+
+            <div className="mt-8 flex items-center justify-center gap-4">
+              <button
+                onClick={call.toggleMute}
+                className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
+                  call.muted
+                    ? 'bg-amber-400/20 text-amber-300'
+                    : 'bg-white/10 text-slate-200 hover:bg-white/15'
+                }`}
+                aria-label="Silenciar"
+              >
+                {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+              <button
+                onClick={call.hangup}
+                className="flex h-20 w-20 items-center justify-center rounded-full bg-rose-600 text-white shadow-lg shadow-rose-600/30 transition-colors hover:bg-rose-700"
+                aria-label="Colgar llamada"
+              >
+                <PhoneOff className="h-8 w-8" />
+              </button>
+            </div>
+          </>
+        )}
+
+        {call.phase === 'ended' && (
+          <>
+            <PhoneOff className="mx-auto h-10 w-10 text-slate-500" />
+            <p className="mt-4 text-sm text-slate-300">Llamada finalizada</p>
+            <p className="mt-1 text-xs text-slate-500">Duración {fmtDuration(call.duration)}</p>
+            <p className="mt-6 text-[11px] text-slate-500">
+              Vuelve a la pestaña del asesor para ver las objeciones detectadas y cerrar la venta.
+            </p>
+          </>
+        )}
+      </div>
+
+      {call.error && (
+        <p className="mt-4 max-w-sm text-center text-xs text-rose-400">{call.error}</p>
+      )}
+
+      <Link to="/" className="mt-8 text-[11px] text-slate-600 hover:text-slate-400">
+        NEXA · Next Experience & Offer AI
+      </Link>
+    </div>
+  )
+}

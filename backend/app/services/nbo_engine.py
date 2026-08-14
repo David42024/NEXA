@@ -16,11 +16,11 @@ from app.config import settings
 
 # Catalogo de ofertas base (coincide con seed_data.py -> tabla offers)
 OFFER_CATALOG = [
-    {"code": "MT_PREMIUM", "name": "Movistar Total Premium", "priority": 5, "arpu_gain": 25},
-    {"code": "MT_BASICO", "name": "Movistar Total Basico", "priority": 4, "arpu_gain": 15},
-    {"code": "UPGRADE_MOVIL", "name": "Upgrade Movil", "priority": 3, "arpu_gain": 12},
-    {"code": "EQUIPO_NUEVO", "name": "Equipo Nuevo", "priority": 2, "arpu_gain": 8},
-    {"code": "PLAN_HOGAR", "name": "Plan Hogar", "priority": 3, "arpu_gain": 18},
+    {"code": "MT_PREMIUM", "name": "Movistar Total Premium", "priority": 5, "arpu_gain": 25, "precio": 99, "ahorro_pct": 0.20},
+    {"code": "MT_BASICO", "name": "Movistar Total Basico", "priority": 4, "arpu_gain": 15, "precio": 59, "ahorro_pct": 0.15},
+    {"code": "UPGRADE_MOVIL", "name": "Upgrade Movil", "priority": 3, "arpu_gain": 12, "precio": 69, "ahorro_pct": 0.10},
+    {"code": "EQUIPO_NUEVO", "name": "Equipo Nuevo", "priority": 2, "arpu_gain": 8, "precio": 89, "ahorro_pct": 0.08},
+    {"code": "PLAN_HOGAR", "name": "Plan Hogar", "priority": 3, "arpu_gain": 18, "precio": 119, "ahorro_pct": 0.18},
 ]
 
 
@@ -107,6 +107,8 @@ def call_external_model(client_id: str, profile: Dict[str, Any]) -> List[Dict[st
             "offer_name": offer["name"],
             "priority": offer["priority"],
             "arpu_gain": offer["arpu_gain"],
+            "precio": offer["precio"],
+            "ahorro_pct": offer["ahorro_pct"],
             "probabilidad": prob,
             "shap_values": shap,
         })

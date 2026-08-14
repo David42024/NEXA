@@ -7,6 +7,7 @@ from app.database import get_db
 from app import models, schemas
 from app.security import require_permission, require_any_permission, get_current_user
 from app.services.funnel_service import mark_contacted
+from app.services.nbo_engine import get_recommendations_for_client
 
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 
@@ -27,18 +28,13 @@ def _is_elegible(profile: dict) -> bool:
     return bool(profile.get("elegibilidad", {}).get("movistar_total"))
 
 
-def _priority_score(profile: dict) -> int:
-    """Score 0-100 proxy de prioridad NBO a partir de senales del perfil."""
-    elig = profile.get("elegibilidad", {})
-    score = sum(1 for v in elig.values() if v) * 20
-    consumo = profile.get("consumo", {})
-    if (consumo.get("datos_gb") or 0) >= 50:
-        score += 10
-    if profile.get("facturacion", {}).get("estado_pago") == "Pagado":
-        score += 5
-    if profile.get("comportamiento", {}).get("reclamos_12m", 1) == 0:
-        score += 5
-    return min(score, 100)
+def _nbo_probability(client: models.Client) -> int:
+    """Probabilidad (%) de la mejor oferta del cliente, calculada por el motor NBO."""
+    recs = get_recommendations_for_client(client.id, client.profile)
+    top = recs.get("recomendaciones", [])
+    if not top:
+        return 0
+    return round(top[0]["probabilidad"] * 100)
 
 
 @router.get("/search", response_model=schemas.ClientSearchResult)
@@ -64,20 +60,53 @@ def search_clients(
         )
     ).limit(10)
     results = query.all()
+    scored = [
+        schemas.ClientSummary(
+            id=c.id,
+            name=c.name,
+            district=c.district,
+            elegible=_is_elegible(c.profile),
+            score=_nbo_probability(c),
+        )
+        for c in results
+    ]
+    # El orden ES la recomendacion para el asesor: priorizar por score descendente.
+    scored.sort(key=lambda s: s.score, reverse=True)
     return schemas.ClientSearchResult(
-        results=[
-            schemas.ClientSummary(
-                id=c.id,
-                name=c.name,
-                district=c.district,
-                elegible=_is_elegible(c.profile),
-                score=_priority_score(c.profile),
-            )
-            for c in results
-        ],
+        results=scored,
         exact_match=exact_match,
         is_id_query=is_id_query,
     )
+
+
+@router.get("", response_model=schemas.ClientListResponse)
+def list_clients(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _user=Depends(require_any_permission("search_client", "view_all_clients")),
+):
+    """Lista paginada de clientes ordenados por probabilidad NBO (descendente).
+
+    El orden ES la recomendacion para el asesor: el cliente con la mejor oferta
+    de mayor probabilidad aparece primero.
+    """
+    clients = db.query(models.Client).order_by(models.Client.id).all()
+    scored = [
+        schemas.ClientSummary(
+            id=c.id,
+            name=c.name,
+            district=c.district,
+            elegible=_is_elegible(c.profile),
+            score=_nbo_probability(c),
+        )
+        for c in clients
+    ]
+    scored.sort(key=lambda s: s.score, reverse=True)
+    total = len(scored)
+    start = (page - 1) * page_size
+    items = scored[start:start + page_size]
+    return schemas.ClientListResponse(total=total, page=page, page_size=page_size, results=items)
 
 
 @router.get("/{client_id}", response_model=schemas.ClientProfileResponse)

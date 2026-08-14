@@ -2,8 +2,8 @@
 Generador de speech con IA generativa.
 
 Flujo de contingencia (10.1):
-1. Primary: Grok API (timeout 5s)
-2. Fallback: proveedor alternativo (Gemini Free / HuggingFace)
+1. Primary: Groq API (timeout 5s)
+2. Fallback: Gemini Free (HuggingFace/Google)
 3. Si ambos fallan: speech generico predefinido + log del fallo
 """
 import logging
@@ -52,15 +52,15 @@ def _build_prompt(payload: Dict, variant: str) -> str:
     )
 
 
-async def _call_grok(prompt: str) -> str:
-    if not settings.GROK_API_KEY:
-        raise RuntimeError("GROK_API_KEY no configurada")
+async def _call_groq(prompt: str) -> str:
+    if not settings.GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY no configurada")
     async with httpx.AsyncClient(timeout=5.0) as client:
         resp = await client.post(
-            settings.GROK_API_URL,
-            headers={"Authorization": f"Bearer {settings.GROK_API_KEY}"},
+            settings.GROQ_API_URL,
+            headers={"Authorization": f"Bearer {settings.GROQ_API_KEY}"},
             json={
-                "model": "grok-beta",
+                "model": settings.GROQ_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": 200,
             },
@@ -70,7 +70,7 @@ async def _call_grok(prompt: str) -> str:
         return data["choices"][0]["message"]["content"].strip()
 
 
-async def _call_fallback(prompt: str) -> str:
+async def _call_gemini(prompt: str) -> str:
     if not settings.FALLBACK_API_KEY:
         raise RuntimeError("FALLBACK_API_KEY no configurada")
     async with httpx.AsyncClient(timeout=5.0) as client:
@@ -86,21 +86,21 @@ async def _call_fallback(prompt: str) -> str:
 async def generate_speech_variants(payload: Dict) -> Dict:
     variants_cfg = [("Variante 1 (Consultiva)", "consultiva"), ("Variante 2 (Directa)", "directa")]
     variantes = []
-    source = "grok"
+    source = "groq"
 
     for label, kind in variants_cfg:
         prompt = _build_prompt(payload, kind)
         text = None
         try:
-            text = await _call_grok(prompt)
+            text = await _call_groq(prompt)
         except Exception as e:
-            logger.warning(f"Grok fallo: {e}")
-            source = "fallback"
+            logger.warning(f"Groq fallo: {e}")
+            source = "gemini"
             try:
-                text = await _call_fallback(prompt)
+                text = await _call_gemini(prompt)
             except Exception as e2:
-                logger.error(f"Fallback tambien fallo: {e2}")
-                source = "generic"
+                logger.error(f"Gemini tambien fallo: {e2}")
+                source = "local"
                 text = _local_template(payload, kind)
         variantes.append({"variante": label, "texto": text})
 

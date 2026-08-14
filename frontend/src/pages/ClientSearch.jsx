@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../utils/api'
+import ScoreBadge from '../components/ScoreBadge.jsx'
+
+const PAGE_SIZE = 20
 
 export default function ClientSearch() {
   const [params] = useSearchParams()
@@ -10,7 +13,37 @@ export default function ClientSearch() {
   const [searched, setSearched] = useState(false)
   const [confirmation, setConfirmation] = useState(null)
   const [validationError, setValidationError] = useState(null)
+  const [searchMode, setSearchMode] = useState(false)
+
+  const [list, setList] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [listLoading, setListLoading] = useState(false)
   const navigate = useNavigate()
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  async function loadList(p) {
+    setListLoading(true)
+    try {
+      const { data } = await api.get(`/api/clients?page=${p}&page_size=${PAGE_SIZE}`)
+      setList(data.results)
+      setTotal(data.total)
+      setPage(data.page)
+    } finally {
+      setListLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (params.get('q')) {
+      setSearchMode(true)
+      runSearch(params.get('q'))
+    } else {
+      loadList(1)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function runSearch(q) {
     if (!q.trim()) return
@@ -18,12 +51,11 @@ export default function ClientSearch() {
     setSearched(true)
     setConfirmation(null)
     setValidationError(null)
+    setSearchMode(true)
     try {
       const { data } = await api.get(`/api/clients/search?q=${encodeURIComponent(q.trim())}`)
       setResults(data.results)
 
-      // Spec 10.5: si el usuario tecleo un ID exacto que no existe pero hay
-      // coincidencias parciales (o por otro campo), pedir confirmacion.
       if (data.is_id_query && !data.exact_match && data.results.length > 0) {
         setConfirmation(data.results[0])
       }
@@ -31,10 +63,6 @@ export default function ClientSearch() {
       setLoading(false)
     }
   }
-
-  useEffect(() => {
-    if (params.get('q')) runSearch(params.get('q'))
-  }, [])
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -49,11 +77,23 @@ export default function ClientSearch() {
     setConfirmation(null)
     setResults([])
     setQuery('')
-    setValidationError('Ingresa un ID válido')
+    setSearchMode(false)
+    setValidationError(null)
+    loadList(1)
   }
 
   function selectClient(id) {
     navigate(`/clientes/${id}`)
+  }
+
+  function backToAll() {
+    setSearchMode(false)
+    setResults([])
+    setSearched(false)
+    setQuery('')
+    setValidationError(null)
+    setConfirmation(null)
+    loadList(1)
   }
 
   return (
@@ -79,34 +119,67 @@ export default function ClientSearch() {
 
       {loading && <p className="text-sm text-slate-400">Buscando…</p>}
 
-      {!loading && searched && results.length === 0 && !confirmation && (
+      {searchMode && !loading && searched && results.length === 0 && !confirmation && (
         <div className="card p-6 max-w-xl">
           <p className="font-medium text-navy-900">No se encontró cliente con ese ID</p>
           <p className="text-sm text-slate-500 mt-1">Verifique el ID o busque por nombre.</p>
+          <button onClick={backToAll} className="btn-secondary text-sm mt-4">Ver todos los clientes</button>
         </div>
       )}
 
-      {!loading && results.length > 0 && !confirmation && (
-        <div className="card divide-y divide-slate-100 max-w-2xl">
-          {results.map((c) => (
+      {searchMode && !loading && results.length > 0 && !confirmation && (
+        <>
+          <div className="flex items-center justify-between mb-2 max-w-2xl">
+            <p className="text-xs text-slate-400">Resultados de búsqueda</p>
+            <button onClick={backToAll} className="btn-ghost text-xs">Ver todos los clientes →</button>
+          </div>
+          <div className="card divide-y divide-slate-100 max-w-2xl">
+            {results.map((c) => (
+              <ClientRow key={c.id} c={c} onSelect={selectClient} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {!searchMode && (
+        <>
+          <p className="mb-2 text-xs text-slate-400">
+            Todos los clientes ordenados por probabilidad de aceptación (motor NBO)
+          </p>
+          {listLoading ? (
+            <p className="text-sm text-slate-400">Cargando clientes…</p>
+          ) : list.length === 0 ? (
+            <div className="card p-6 max-w-2xl">
+              <p className="text-sm text-slate-500">No hay clientes registrados.</p>
+            </div>
+          ) : (
+            <div className="card divide-y divide-slate-100 max-w-2xl">
+              {list.map((c) => (
+                <ClientRow key={c.id} c={c} onSelect={selectClient} />
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 flex items-center gap-3 max-w-2xl">
             <button
-              key={c.id}
-              onClick={() => selectClient(c.id)}
-              className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+              onClick={() => loadList(page - 1)}
+              disabled={page <= 1 || listLoading}
+              className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
-                  {c.name?.[0]}
-                </div>
-                <div>
-                  <p className="font-medium text-navy-900">{c.name}</p>
-                  <p className="text-xs text-slate-400 font-mono">{c.id} · {c.district}</p>
-                </div>
-              </div>
-              <span className="text-cyan-600 text-sm font-medium">Ver perfil →</span>
+              ← Anterior
             </button>
-          ))}
-        </div>
+            <span className="text-xs text-slate-500">
+              Página {page} de {totalPages} · {total} clientes
+            </span>
+            <button
+              onClick={() => loadList(page + 1)}
+              disabled={page >= totalPages || listLoading}
+              className="btn-secondary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Siguiente →
+            </button>
+          </div>
+        </>
       )}
 
       {confirmation && (
@@ -134,5 +207,32 @@ export default function ClientSearch() {
         </div>
       )}
     </div>
+  )
+}
+
+function ClientRow({ c, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(c.id)}
+      className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
+          {c.name?.[0]}
+        </div>
+        <div>
+          <p className="font-medium text-navy-900">{c.name}</p>
+          <p className="text-xs text-slate-400 font-mono">{c.id} · {c.district}</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        {c.elegible && (
+          <span className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300">
+            Elegible
+          </span>
+        )}
+        <ScoreBadge value={c.score} />
+      </div>
+    </button>
   )
 }

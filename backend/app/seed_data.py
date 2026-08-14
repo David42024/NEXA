@@ -1,6 +1,7 @@
 """
-Genera datos sinteticos realistas (clientes, ofertas, usuarios, permisos,
-interacciones historicas y funnel) para la demo de NEXA.
+Genera datos base realistas (clientes, ofertas, usuarios y permisos) para la demo
+de NEXA. El funnel e interacciones se registran con datos reales de uso, no con
+numeros sinteticos.
 Cumple con la estrategia de anonimizacion (10.4): nombre + primer apellido,
 documento/telefono solo ultimos 4 digitos, direccion reducida a distrito.
 """
@@ -34,11 +35,23 @@ def build_client_profile(idx: int):
     antiguedad_dias = random.randint(15, 2000)
     antiguedad_meses = antiguedad_dias // 30
     datos_gb = round(random.uniform(1, 120), 1)
+    app_uso = random.choice(["Alto", "Medio", "Bajo"])
+    horario_pico = random.choice(["19:00-23:00", "08:00-12:00", "12:00-18:00"])
+    canal_principal = random.choice(CANALES)
+    # Dias hasta agotar los datos segun el uso diario estimado (1-45, urgente si es bajo).
+    datos_uso_diario = {"Alto": 3.5, "Medio": 2.5, "Bajo": 1.5}[app_uso]
+    dias_agotamiento_datos = int(max(1, min(45, datos_gb / (datos_uso_diario * random.uniform(0.7, 1.3)))))
 
     elegibilidad_mt = tiene_internet and random.random() < 0.7
     elegibilidad_upgrade = random.random() < 0.5
     elegibilidad_equipo = random.random() < 0.35
     elegibilidad_hogar = (not tiene_internet) and random.random() < 0.6
+
+    # Factura promedio: si tiene internet (convergencia), la factura total es mayor.
+    monto_actual = round(random.uniform(29, 150), 2)
+    monto_facturado_prom = round(monto_actual + (random.uniform(45, 80) if tiene_internet else random.uniform(0, 5)), 2)
+    estado_pago = random.choices(["Pagado", "Pendiente"], weights=[85, 15])[0]
+    dias_mora_prom = random.randint(6, 25) if estado_pago == "Pendiente" else random.randint(0, 3)
 
     profile = {
         "id": f"C{idx:05d}",
@@ -60,11 +73,13 @@ def build_client_profile(idx: int):
         "consumo": {
             "datos_gb": datos_gb,
             "datos_promedio_3m": round(datos_gb * random.uniform(0.85, 1.1), 1),
+            "dias_agotamiento_datos_promedio": dias_agotamiento_datos,
             "voz_minutos": random.randint(20, 500),
             "voz_promedio_3m": random.randint(20, 500),
             "sms": random.randint(0, 40),
-            "app_uso": random.choice(["Alto", "Medio", "Bajo"]),
-            "horario_pico": random.choice(["19:00-23:00", "08:00-12:00", "12:00-18:00"]),
+            "app_uso": app_uso,
+            "horario_pico": horario_pico,
+            "mejor_franja_horaria_contacto": horario_pico,
             "navegacion_web": random.random() < 0.8,
             "streaming": random.random() < 0.6,
         },
@@ -76,21 +91,25 @@ def build_client_profile(idx: int):
             "velocidad_internet": random.choice(["50 Mbps", "100 Mbps", "200 Mbps"]) if tiene_internet else None,
         },
         "facturacion": {
-            "monto_actual": round(random.uniform(29, 150), 2),
+            "monto_actual": monto_actual,
+            "monto_facturado_prom": monto_facturado_prom,
             "monto_promedio_6m": round(random.uniform(29, 150), 2),
             "monto_maximo": round(random.uniform(100, 180), 2),
             "monto_minimo": round(random.uniform(20, 60), 2),
             "ultimo_pago": (date.today() - timedelta(days=random.randint(0, 20))).isoformat(),
-            "estado_pago": random.choices(["Pagado", "Pendiente"], weights=[85, 15])[0],
+            "estado_pago": estado_pago,
+            "dias_mora_prom": dias_mora_prom,
         },
         "comportamiento": {
-            "canal_principal": random.choice(CANALES),
+            "canal_principal": canal_principal,
+            "canal_mas_usado": canal_principal,
             "canal_secundario": random.choice(CANALES),
             "frecuencia_interaccion": random.choice(["Alta", "Media", "Baja"]),
             "app_downloads": random.random() < 0.6,
             "app_login_frecuencia": random.choice(["Diario", "Semanal", "Rara vez"]),
             "uso_web": random.random() < 0.7,
             "reclamos_12m": random.randint(0, 4),
+            "n_reclamos": random.randint(0, 4),
             "reclamos_abiertos": random.randint(0, 1),
             "nps": random.randint(0, 10),
             "satisfaccion": random.choice(["Alta", "Media-Alta", "Media", "Baja"]),
@@ -116,6 +135,27 @@ def build_client_profile(idx: int):
         if resultado == "Rechazado":
             entry["motivo"] = random.choice(RECHAZO_MOTIVOS)
         profile["historial_ofertas"].append(entry)
+
+    # Historial de campanas previas (timeline de etapas hasta la recomendacion actual)
+    campania_pool = [
+        {"campaña": "Masiva Fibra", "canal": "WhatsApp"},
+        {"campaña": "Retención Fin de Año", "canal": "Llamada"},
+        {"campaña": "Fidelización Q1", "canal": "App"},
+        {"campaña": "Upgrade Equipos", "canal": "Llamada"},
+        {"campaña": "Campaña Hogar", "canal": "WhatsApp"},
+    ]
+    historial_campanias = []
+    for i in range(random.randint(2, 4)):
+        c = random.choice(campania_pool)
+        historial_campanias.append({
+            "campaña": c["campaña"],
+            "fecha": (date.today() - timedelta(days=20 + i * random.randint(30, 60))).isoformat(),
+            "etapa": random.choice(["Analizado", "Contactado", "Oferta"]),
+            "canal": c["canal"],
+            "resultado": random.choice(["Sin respuesta", "Sin interés", "Pendiente"]),
+        })
+    historial_campanias.sort(key=lambda e: e["fecha"])
+    profile["historial_campanias"] = historial_campanias
 
     # Simular algunos campos faltantes (estrategia 2.2 -> flags _missing)
     if random.random() < 0.08:
@@ -217,36 +257,9 @@ def seed():
             clients.append(client)
         db.flush()
 
-        # --- Interacciones historicas (para funnel y KPIs) ---
-        for _ in range(120):
-            client = random.choice(clients)
-            offer = random.choice(offers)
-            result = random.choices(["accepted", "rejected"], weights=[44, 56])[0]
-            asesor = random.choice([u for u in db_users if u.role == "asesor"])
-            interaction = models.Interaction(
-                client_id=client.id,
-                asesor_id=asesor.id,
-                channel=random.choice(CANALES),
-                result=result,
-                rejection_reason=random.choice(RECHAZO_MOTIVOS) if result == "rejected" else None,
-                speech_used=random.choice(["Variante 1 (Consultiva)", "Variante 2 (Directa)"]),
-                created_at=datetime.utcnow() - timedelta(days=random.randint(0, 180)),
-            )
-            db.add(interaction)
-
-        # --- Funnel diario (ultimos 30 dias) ---
-        for d in range(30):
-            day = date.today() - timedelta(days=d)
-            analyzed = random.randint(300, 500)
-            prioritized = int(analyzed * random.uniform(0.6, 0.7))
-            contacted = int(prioritized * random.uniform(0.7, 0.8))
-            offered = int(contacted * random.uniform(0.75, 0.85))
-            accepted = int(offered * random.uniform(0.38, 0.48))
-            conversion = round((accepted / analyzed) * 100, 2) if analyzed else 0
-            db.add(models.FunnelDaily(
-                date=day, analyzed=analyzed, prioritized=prioritized, contacted=contacted,
-                offered=offered, accepted=accepted, conversion_rate=conversion,
-            ))
+        # El funnel (funnel_daily) y las interacciones se siembran aparte con
+        # volumen demo modesto y coherente: ver seed_demo_activity() abajo.
+        # En produccion estos datos se registran con uso real.
 
         db.commit()
         print(f"Seed completo: {len(db_users)} usuarios, {len(offers)} ofertas, {len(clients)} clientes.")
@@ -257,5 +270,151 @@ def seed():
         db.close()
 
 
+def seed_demo_activity(db=None):
+    """Siembra actividad demo COHERENTE entre el funnel clásico y el E2E.
+
+    Fuente unica: por cada dia se crean `analyzed` ofrecimientos E2E (rampa
+    1->4/dia durante 90 dias) y el funnel_daily se calcula a partir de esos
+    mismos ofrecimientos (prioritized=planned, contacted, offered=objection,
+    accepted=aceptados). Asi el total del periodo coincide en ambos funnels
+    (Diario ~= 32, Semanal ~= 102, Mensual = 225) y cada cliente analizado
+    equivale a 1 ofrecimiento rastreado.
+
+    En produccion estos datos se registran con uso real; esto es solo para la demo.
+    """
+    from app.database import SessionLocal
+    from app import models
+
+    own_session = db is None
+    if own_session:
+        db = SessionLocal()
+    try:
+        # Idempotencia: limpia actividad demo previa antes de re-sembrar.
+        db.query(models.FunnelDaily).delete()
+        db.query(models.Offering).delete()
+        db.query(models.Recommendation).delete()
+        db.query(models.Interaction).delete()
+
+        # Asegura 3 asesores demo (el supervisor ve su desempeño).
+        DEMO_ASESORES = [
+            {"email": "asesor@nexa.demo", "name": "Miguel Angel"},
+            {"email": "asesor2@nexa.demo", "name": "Jose Manuel"},
+            {"email": "asesor3@nexa.demo", "name": "Carmen Ruiz"},
+        ]
+        asesores = []
+        for d in DEMO_ASESORES:
+            u = db.query(models.User).filter(models.User.email == d["email"]).first()
+            if not u:
+                u = models.User(email=d["email"], password_hash=hash_password("asesor123"),
+                                role="asesor", name=d["name"])
+                db.add(u)
+                db.flush()
+            asesores.append(u)
+        offers = db.query(models.Offer).all()
+        clients = db.query(models.Client).all()
+        if not asesores or not offers or not clients:
+            print("Seed de actividad omitido: faltan usuarios/ofertas/clientes.")
+            return
+
+        # Sesgo de aceptacion por asesor (demo: niveles de cumplimiento distintos
+        # para que el panel de supervisión muestre cumple / en curso / bajo).
+        bias = {a.id: [0.75, 0.55, 0.30][i % 3] for i, a in enumerate(asesores)}
+
+        rnd = random.Random(7)
+        DAYS_FUNNEL = 90
+        now = datetime.utcnow()
+        total_offerings = 0
+        for offset in range(DAYS_FUNNEL):
+            frac = 1 - offset / (DAYS_FUNNEL - 1)  # 1 hoy, decrece hacia atras
+            analyzed = max(1, round(1 + 3 * frac))  # 1 .. 4
+            day = date.today() - timedelta(days=offset)
+
+            planned_n = int(round(analyzed * 0.85))
+            contacted_n = int(round(analyzed * 0.70))
+            objection_n = int(round(analyzed * 0.50))
+            evidence_n = int(round(analyzed * 0.40))
+            result_n = int(round(analyzed * 0.20))
+            accepted_n = 0
+
+            for idx in range(analyzed):
+                client = rnd.choice(clients)
+                offer = rnd.choice(offers)
+                asesor = rnd.choice(asesores)
+                channel = rnd.choice(["WhatsApp", "Llamada", "App"])
+                created = datetime(day.year, day.month, day.day, rnd.randint(8, 20), rnd.randint(0, 59))
+                o = models.Offering(
+                    client_id=client.id,
+                    offer_id=offer.id,
+                    asesor_id=asesor.id,
+                    channel=channel,
+                    message_text="Ofrecimiento demo: oferta NEXA para el cliente.",
+                    created_at=created,
+                )
+                if idx < result_n:
+                    o.stage = "result"
+                    o.contact_status = "answered"
+                    o.objection_handled = rnd.random() < 0.45
+                    o.evidence_type = rnd.choice(["platform_register", "call_audio", "call_audio"])
+                    o.result = "accepted" if rnd.random() < bias[o.asesor_id] else "rejected"
+                    if o.result == "accepted":
+                        accepted_n += 1
+                    else:
+                        o.rejection_reason = rnd.choice(["Precio", "No necesita", "Quiere pensarlo", "Ya tiene con otro operador"])
+                    rec = None
+                    if o.result == "accepted":
+                        rec = models.Recommendation(
+                            client_id=client.id, offer_id=offer.id,
+                            probability=round(rnd.uniform(0.5, 0.95), 4),
+                            score=round(rnd.uniform(0.5, 0.95), 4),
+                            created_at=created,
+                        )
+                        db.add(rec)
+                        db.flush()
+                    db.add(models.Interaction(
+                        client_id=client.id,
+                        recommendation_id=rec.id if rec else None,
+                        asesor_id=o.asesor_id,
+                        channel=channel,
+                        result=o.result,
+                        rejection_reason=o.rejection_reason,
+                        speech_used=rnd.choice(["Variante 1 (Consultiva)", "Variante 2 (Directa)"]),
+                        created_at=created,
+                    ))
+                elif idx < evidence_n:
+                    o.stage = "evidence"
+                    o.contact_status = "answered"
+                    o.objection_handled = rnd.random() < 0.5
+                    o.evidence_type = rnd.choice(["platform_register", "call_audio", "call_audio"])
+                elif idx < objection_n:
+                    o.stage = "objection"
+                    o.contact_status = "answered"
+                    o.objection_handled = rnd.random() < 0.4
+                elif idx < contacted_n:
+                    o.stage = "contacted"
+                    o.contact_status = rnd.choice(["answered", "read", "read", "unanswered"])
+                elif idx < planned_n:
+                    o.stage = "planned"
+                db.add(o)
+                total_offerings += 1
+
+            conversion = round((accepted_n / analyzed) * 100, 2) if analyzed else 0
+            db.add(models.FunnelDaily(
+                date=day,
+                analyzed=analyzed,
+                prioritized=planned_n,
+                contacted=contacted_n,
+                offered=objection_n,
+                accepted=accepted_n,
+                conversion_rate=conversion,
+            ))
+
+        db.commit()
+        print(f"Seed de actividad demo listo: {total_offerings} ofrecimientos E2E alineados a {DAYS_FUNNEL} dias de funnel_daily.")
+    finally:
+        if own_session:
+            db.close()
+
+
 if __name__ == "__main__":
     seed()
+    seed_demo_activity()

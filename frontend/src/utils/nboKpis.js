@@ -1,0 +1,78 @@
+// Cálculo de los 5 KPIs estrella del Dashboard Comercial NBO.
+// Fuente única de verdad: ClientProfile.jsx lo consume y Vitest lo valida.
+// Los umbrales coinciden con ScoreBadge (verde >= 70, ámbar >= 50, rojo < 50).
+
+export const PROB_GOOD = 70
+export const PROB_WARN = 50
+export const DATOS_URGENTE = 20
+export const DATOS_WARN = 30
+export const MORA_ALTA = 15
+
+/**
+ * Deriva los 5 KPIs del perfil del cliente y de la mejor recomendación NBO.
+ *
+ * - KPI 1 Scoring NBO:      probabilidad de aceptación de la mejor oferta.
+ * - KPI 2 Ahorro Real:      monto_facturado_prom x ahorro_pct (S/ al mes).
+ * - KPI 3 Hambre de datos:  dias_agotamiento_datos_promedio (< 20 = urgencia).
+ * - KPI 4 Fricción:         suma conceptual n_reclamos + mora alta (>=15 días).
+ * - KPI 5 Ventana:          cruce canal_mas_usado + mejor_franja_horaria_contacto.
+ *
+ * @param {object} profile   client.profile (estructura del seed).
+ * @param {object|null} topOffer  primera recomendación de recs.recomendaciones.
+ * @returns {object} KPIs calculados con su tone ('good'|'warn'|'bad'|'muted'|'accent').
+ */
+export function computeNboKpis(profile = {}, topOffer = null) {
+  const p = profile || {}
+  const fact = p.facturacion || {}
+  const consumo = p.consumo || {}
+  const comp = p.comportamiento || {}
+
+  // KPI 1 — Scoring de Probabilidad NBO
+  const probPct = topOffer ? Math.round(topOffer.probabilidad * 100) : null
+  const probTone =
+    probPct == null ? 'muted' : probPct >= PROB_GOOD ? 'good' : probPct >= PROB_WARN ? 'warn' : 'bad'
+
+  // KPI 2 — Ahorro Real Proyectado
+  const montoProm = fact.monto_facturado_prom ?? fact.monto_promedio_6m ?? 0
+  const ahorroPct = topOffer?.ahorro_pct ?? 0
+  const ahorroMensual = montoProm * ahorroPct
+  const precioProyectado = montoProm * (1 - ahorroPct)
+
+  // KPI 3 — Días de "Hambre de Datos"
+  const diasAgotamiento = consumo.dias_agotamiento_datos_promedio ?? null
+  const datosUrgent = diasAgotamiento != null && diasAgotamiento < DATOS_URGENTE
+  const datosTone =
+    diasAgotamiento == null ? 'muted' : datosUrgent ? 'bad' : diasAgotamiento <= DATOS_WARN ? 'warn' : 'good'
+
+  // KPI 4 — Semáforo de Fricción (suma conceptual de señales)
+  const nReclamos = comp.n_reclamos ?? comp.reclamos_12m ?? 0
+  const diasMora = fact.dias_mora_prom ?? 0
+  const friccionScore = nReclamos + (diasMora >= MORA_ALTA ? 1 : 0)
+  const friccionLevel = friccionScore >= 2 ? 'Riesgo alto' : friccionScore === 1 ? 'Riesgo medio' : 'Bajo'
+  const friccionTone = friccionScore >= 2 ? 'bad' : friccionScore === 1 ? 'warn' : 'good'
+  const friccionAlerta = friccionScore >= 2 ? 'Requiere manejo de objeciones' : null
+
+  // KPI 5 — Ventana de Oportunidad (cuándo y por dónde atacar)
+  const canal = comp.canal_mas_usado ?? comp.canal_principal ?? null
+  const franja = consumo.mejor_franja_horaria_contacto ?? consumo.horario_pico ?? null
+
+  return {
+    probPct,
+    probTone,
+    montoProm,
+    ahorroPct,
+    ahorroMensual,
+    precioProyectado,
+    diasAgotamiento,
+    datosUrgent,
+    datosTone,
+    nReclamos,
+    diasMora,
+    friccionScore,
+    friccionLevel,
+    friccionTone,
+    friccionAlerta,
+    canal,
+    franja,
+  }
+}

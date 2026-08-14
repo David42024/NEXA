@@ -1,18 +1,43 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ArrowLeft } from 'lucide-react'
 import api from '../utils/api'
-import ShapExplainability from '../components/ShapExplainability.jsx'
-import ProbabilityRing from '../components/ProbabilityRing.jsx'
-import Badge from '../components/Badge.jsx'
+import { computeNboKpis } from '../utils/nboKpis'
+import LiveCallPanel from '../components/LiveCallPanel.jsx'
+import ClientHeader from '../components/cockpit/ClientHeader.jsx'
+import NboScoreCard from '../components/cockpit/NboScoreCard.jsx'
+import SavingsCard from '../components/cockpit/SavingsCard.jsx'
+import CampaignTimeline from '../components/cockpit/CampaignTimeline.jsx'
+import E2ETracking from '../components/cockpit/E2ETracking.jsx'
+import NexabotCopilot from '../components/cockpit/NexabotCopilot.jsx'
+import CommercialActions from '../components/cockpit/CommercialActions.jsx'
+import RejectModal from '../components/cockpit/RejectModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
-const REJECTION_REASONS = ['Precio', 'No necesita', 'Ya tiene con otro operador', 'Quiere pensarlo', 'Mal momento']
 const FEEDBACK_OPTIONS = [
   { value: 'wrong_data', label: 'Datos incorrectos del cliente' },
   { value: 'bad_offer', label: 'Oferta inapropiada para este cliente' },
   { value: 'wrong_probability', label: 'Probabilidad parece incorrecta' },
   { value: 'other', label: 'Otro (especificar)' },
 ]
+
+function ProfileSkeleton() {
+  return (
+    <div className="animate-pulse space-y-5">
+      <div className="h-28 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <div className="h-72 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+            <div className="h-72 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+          </div>
+          <div className="h-56 rounded-xl border border-slate-200 bg-white dark:border-white/10 dark:bg-navy-800/60" />
+        </div>
+        <div className="h-[620px] rounded-xl bg-navy-900/80" />
+      </div>
+    </div>
+  )
+}
 
 export default function ClientProfile() {
   const { id } = useParams()
@@ -46,6 +71,17 @@ export default function ClientProfile() {
   const [dataSubmitting, setDataSubmitting] = useState(false)
   const [dataConfirmation, setDataConfirmation] = useState(null)
 
+  // Seguimiento E2E del ofrecimiento
+  const [e2eByOffer, setE2eByOffer] = useState({})
+  const [e2eChannel, setE2eChannel] = useState({})
+  const [e2eContact, setE2eContact] = useState({})
+  const [e2eEvidence, setE2eEvidence] = useState({})
+  const [e2eObjection, setE2eObjection] = useState({})
+  const [e2eSaving, setE2eSaving] = useState(null)
+
+  // Copilot en vivo: objeciones detectadas durante la llamada WebRTC
+  const [liveCopilot, setLiveCopilot] = useState([])
+
   useEffect(() => {
     async function load() {
       setLoading(true)
@@ -54,6 +90,21 @@ export default function ClientProfile() {
       try {
         const { data } = await api.get(`/api/clients/${id}`)
         setClient(data)
+        api.get(`/api/e2e/offerings?client_id=${id}`)
+          .then(({ data: offerings }) => {
+            const map = {}
+            offerings.forEach((o) => { if (o.offer_id) map[o.offer_id] = o })
+            setE2eByOffer(map)
+            const ch = {}; const ct = {}; const ev = {}; const ob = {}
+            Object.values(map).forEach((o) => {
+              if (o.channel) ch[o.offer_id] = o.channel
+              if (o.contact_status) ct[o.offer_id] = o.contact_status
+              if (o.evidence_type) ev[o.offer_id] = o.evidence_type
+              ob[o.offer_id] = o.objection_handled
+            })
+            setE2eChannel(ch); setE2eContact(ct); setE2eEvidence(ev); setE2eObjection(ob)
+          })
+          .catch(() => {})
       } catch (e) {
         if (e.response?.status === 404) setNotFound(true)
       } finally {
@@ -87,8 +138,34 @@ export default function ClientProfile() {
         canal: 'Digital',
       })
       setSpeechByOffer((prev) => ({ ...prev, [offer.oferta]: data }))
+      const firstVariant = data.variantes?.[0]?.texto
+      if (firstVariant) {
+        await saveE2E(offer, {
+          channel: e2eChannel[offer.offer_id] || 'Llamada',
+          message_text: firstVariant,
+          stage: 'planned',
+        })
+      }
     } finally {
       setSpeechLoading(null)
+    }
+  }
+
+  async function saveE2E(offer, fields) {
+    setE2eSaving(offer.offer_id)
+    try {
+      const existing = e2eByOffer[offer.offer_id]
+      const res = existing
+        ? await api.patch(`/api/e2e/offerings/${existing.id}`, fields)
+        : await api.post('/api/e2e/offerings', { client_id: id, offer_id: offer.offer_id, ...fields })
+      const data = res.data
+      setE2eByOffer((prev) => ({ ...prev, [offer.offer_id]: data }))
+      if (data.channel) setE2eChannel((prev) => ({ ...prev, [offer.offer_id]: data.channel }))
+      if (data.contact_status) setE2eContact((prev) => ({ ...prev, [offer.offer_id]: data.contact_status }))
+      if (data.evidence_type) setE2eEvidence((prev) => ({ ...prev, [offer.offer_id]: data.evidence_type }))
+      setE2eObjection((prev) => ({ ...prev, [offer.offer_id]: data.objection_handled }))
+    } finally {
+      setE2eSaving(null)
     }
   }
 
@@ -96,6 +173,20 @@ export default function ClientProfile() {
     navigator.clipboard?.writeText(text)
     setCopiedKey(key)
     setTimeout(() => setCopiedKey(null), 1500)
+  }
+
+  // ---- Llamada en vivo (WebRTC): el copilot detecta objeciones en tiempo real ----
+  function handleCopilotEvent(event) {
+    setLiveCopilot((prev) => [...prev.slice(-4), { ...event, time: Date.now() }])
+  }
+
+  // El backend avanza el E2E solo durante la llamada; aquí solo se refleja en vivo.
+  function handleOffering(offering) {
+    setE2eByOffer((prev) => ({ ...prev, [offering.offer_id]: offering }))
+    if (offering.channel) setE2eChannel((prev) => ({ ...prev, [offering.offer_id]: offering.channel }))
+    if (offering.contact_status) setE2eContact((prev) => ({ ...prev, [offering.offer_id]: offering.contact_status }))
+    if (offering.evidence_type) setE2eEvidence((prev) => ({ ...prev, [offering.offer_id]: offering.evidence_type }))
+    setE2eObjection((prev) => ({ ...prev, [offering.offer_id]: offering.objection_handled }))
   }
 
   async function registerResult(offer, result, reason = null) {
@@ -111,6 +202,12 @@ export default function ClientProfile() {
         speech_used: speechByOffer[offer.oferta]?.variantes?.[0]?.texto || null,
       })
       setRegisteredOffers((prev) => ({ ...prev, [offer.oferta]: result }))
+      if (e2eByOffer[offer.offer_id]) {
+        setE2eByOffer((prev) => ({
+          ...prev,
+          [offer.offer_id]: { ...prev[offer.offer_id], stage: 'result', result, rejection_reason: reason },
+        }))
+      }
       setRejectingOffer(null)
       setRejectReason('')
     } finally {
@@ -146,263 +243,176 @@ export default function ClientProfile() {
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-400">Cargando perfil…</p>
+  if (loading) return <ProfileSkeleton />
 
   if (notFound) {
     return (
-      <div className="card p-6 max-w-lg">
-        <p className="font-medium text-navy-900">⚠️ No se encontró cliente con ese ID</p>
-        <p className="text-sm text-slate-500 mt-1 mb-4">Verifique el ID o busque por nombre.</p>
+      <div className="max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-navy-800/60">
+        <p className="font-medium text-navy-900 dark:text-white">⚠️ No se encontró cliente con ese ID</p>
+        <p className="mt-1 mb-4 text-sm text-slate-500">Verifique el ID o busque por nombre.</p>
         <button className="btn-secondary" onClick={() => navigate('/clientes')}>Volver a buscar</button>
       </div>
     )
   }
 
   const p = client.profile
-  const historial = p.historial_ofertas || []
+
+  // ---- Derivaciones del Dashboard Comercial NBO (módulo puro, validado por tests) ----
+  const topOffer = recs?.recomendaciones?.[0] || null
+  const k = computeNboKpis(p, topOffer)
+  const campanias = p.historial_campanias || []
+
+  const status = topOffer ? registeredOffers[topOffer.oferta] : null
+  const canGenerate = hasPermission('view_recommendation')
+  const canSpeech = hasPermission('view_speech')
 
   return (
     <div>
-      <button onClick={() => navigate('/clientes')} className="btn-ghost text-sm mb-4">← Volver a búsqueda</button>
+      <button onClick={() => navigate('/clientes')} className="mb-4 flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-cyan-600">
+        <ArrowLeft className="h-4 w-4" />
+        Volver a búsqueda
+      </button>
 
-      <div className="flex items-start justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-bold text-navy-800 text-xl">
-            {client.name?.[0]}
-          </div>
-          <div>
-            <h1 className="font-display font-bold text-2xl text-navy-900">{client.name}</h1>
-            <p className="text-sm text-slate-400 font-mono">{client.id} · {client.district} · DNI ***{client.document_last4}</p>
-          </div>
-        </div>
-        {hasPermission('view_recommendation') && (
-          <button onClick={generateRecommendation} disabled={recLoading} className="btn-primary">
-            {recLoading ? 'Generando…' : recs ? 'Regenerar recomendación' : '✨ Recomendar'}
-          </button>
-        )}
-      </div>
+      <ClientHeader
+        client={client}
+        k={k}
+        hasRecs={Boolean(recs)}
+        generating={recLoading}
+        onGenerate={generateRecommendation}
+        onRequestData={() => setDataModal(true)}
+        canGenerate={canGenerate}
+      />
 
-      {client.data_completeness_warning && (
-        <div className="mb-6 px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-sm">
-          ⚠️ Información incompleta. Las recomendaciones pueden ser menos precisas.
+      {recWarning && (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
+          {recWarning}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-6">
-        <div className="card p-5">
-          <p className="label-eyebrow mb-3">Servicio</p>
-          <dl className="space-y-2 text-sm">
-            <Row k="Tipo" v={p.servicio?.tipo} />
-            <Row k="Plan" v={p.servicio?.plan} />
-            <Row k="Antigüedad" v={`${p.servicio?.antiguedad_meses} meses (${p.servicio?.antiguedad_dias} días)`} />
-            <Row k="Activación" v={p.servicio?.fecha_activacion} />
-          </dl>
-        </div>
-        <div className="card p-5">
-          <p className="label-eyebrow mb-3">Consumo</p>
-          <dl className="space-y-2 text-sm">
-            <Row k="Datos" v={p.consumo?.datos_gb != null ? `${p.consumo.datos_gb} GB` : 'No disponible'} />
-            <Row k="Voz" v={p.consumo?.voz_minutos != null ? `${p.consumo.voz_minutos} min` : 'No disponible'} />
-            <Row k="Uso de app" v={p.consumo?.app_uso} />
-            <Row k="Streaming" v={p.consumo?.streaming ? 'Sí' : 'No'} />
-          </dl>
-        </div>
-        <div className="card p-5">
-          <p className="label-eyebrow mb-3">Facturación</p>
-          <dl className="space-y-2 text-sm">
-            <Row k="Monto actual" v={`S/ ${p.facturacion?.monto_actual?.toFixed(2)}`} />
-            <Row k="Promedio 6m" v={`S/ ${p.facturacion?.monto_promedio_6m?.toFixed(2)}`} />
-            <Row k="Último pago" v={p.facturacion?.ultimo_pago} />
-            <Row k="Estado" v={<Badge tone={p.facturacion?.estado_pago === 'Pagado' ? 'success' : 'warning'}>{p.facturacion?.estado_pago}</Badge>} />
-          </dl>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="lg:col-span-2 space-y-5">
-          <p className="label-eyebrow">Recomendación NBO</p>
-
-          {!recs && !recLoading && (
-            <div className="card p-8 text-center">
-              <p className="text-3xl mb-2">✨</p>
-              <p className="text-sm text-slate-500">Genera una recomendación para ver las mejores ofertas para {client.name?.split(' ')[0]}.</p>
-            </div>
-          )}
-
-          {recLoading && <div className="card p-8 text-center text-sm text-slate-400">Calculando probabilidades…</div>}
-
-          {recWarning && (
-            <div className="px-4 py-3 rounded-lg bg-amber-50 text-amber-800 text-sm">{recWarning}</div>
-          )}
-
-          {recs?.recomendaciones?.map((offer) => {
-            const speech = speechByOffer[offer.oferta]
-            const status = registeredOffers[offer.oferta]
-            return (
-              <div key={offer.oferta} className="card p-6">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex items-start gap-4">
-                    <ProbabilityRing value={offer.probabilidad} lowProbability={offer.low_probability} />
-                    <div>
-                      <h3 className="font-display font-semibold text-lg text-navy-900">{offer.oferta}</h3>
-                      <p className="text-xs text-slate-400 font-mono mt-0.5">score comercial: {offer.score.toFixed(2)}</p>
-                      {offer.low_probability && <Badge tone="warning">⚠️ Probabilidad baja</Badge>}
-                    </div>
-                  </div>
-                  {status && (
-                    <Badge tone={status === 'accepted' ? 'success' : 'danger'}>
-                      {status === 'accepted' ? '✓ Aceptado' : '✕ Rechazado'}
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-slate-100">
-                  <p className="text-xs text-slate-400 mb-2">Top razones (SHAP)</p>
-                  <ShapExplainability shapValues={offer.shap_values} />
-                </div>
-
-                {hasPermission('view_speech') && (
-                  <div className="mt-4 pt-4 border-t border-slate-100">
-                    {!speech ? (
-                      <button
-                        onClick={() => generateSpeech(offer)}
-                        disabled={speechLoading === offer.oferta}
-                        className="btn-secondary text-sm"
-                      >
-                        {speechLoading === offer.oferta ? 'Generando speech…' : '💬 Generar speech'}
-                      </button>
-                    ) : (
-                      <div className="space-y-3">
-                        {speech.variantes.map((v, i) => {
-                          const key = `${offer.oferta}-${i}`
-                          return (
-                            <div key={key} className="bg-slate-50 rounded-lg p-3.5">
-                              <div className="flex items-center justify-between mb-1.5">
-                                <p className="text-xs font-semibold text-navy-700">{v.variante}</p>
-                                <button
-                                  onClick={() => copySpeech(v.texto, key)}
-                                  className="text-xs text-cyan-600 hover:text-cyan-700 font-medium"
-                                >
-                                  {copiedKey === key ? '✓ Copiado' : 'Copiar'}
-                                </button>
-                              </div>
-                              <p className="text-sm text-slate-700 leading-relaxed">{v.texto}</p>
-                            </div>
-                          )
-                        })}
-                        <div className="flex items-center justify-between">
-                          <button onClick={() => generateSpeech(offer)} className="btn-ghost text-xs">
-                            🔄 Generar nuevo speech
-                          </button>
-                          {speech.source !== 'grok' && (
-                            <span className="text-[11px] text-slate-400">fuente: {speech.source}</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {!status && (
-                  <div className="mt-4 pt-4 border-t border-slate-100 flex items-center gap-2 flex-wrap">
-                    {hasPermission('register_acceptance') && (
-                      <button
-                        onClick={() => registerResult(offer, 'accepted')}
-                        disabled={registering === offer.oferta}
-                        className="btn-primary text-sm"
-                      >
-                        ✓ Registrar aceptación
-                      </button>
-                    )}
-                    {hasPermission('register_rejection') && (
-                      <button
-                        onClick={() => setRejectingOffer(offer.oferta)}
-                        className="btn-secondary text-sm"
-                      >
-                        ✕ Registrar rechazo
-                      </button>
-                    )}
-                    <button
-                      onClick={() => setFeedbackModal(offer.oferta)}
-                      className="btn-ghost text-xs ml-auto"
-                    >
-                      ⚠️ Reportar problema
-                    </button>
-                  </div>
-                )}
-
-                {rejectingOffer === offer.oferta && (
-                  <div className="mt-3 bg-rose-50/50 rounded-lg p-3.5">
-                    <p className="text-xs font-medium text-navy-700 mb-2">Motivo de rechazo</p>
-                    <div className="flex flex-wrap gap-2 mb-3">
-                      {REJECTION_REASONS.map((r) => (
-                        <button
-                          key={r}
-                          onClick={() => setRejectReason(r)}
-                          className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                            rejectReason === r ? 'bg-navy-900 text-white border-navy-900' : 'bg-white border-slate-200 text-slate-600'
-                          }`}
-                        >
-                          {r}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        disabled={!rejectReason}
-                        onClick={() => registerResult(offer, 'rejected', rejectReason)}
-                        className="btn-primary text-xs"
-                      >
-                        Confirmar rechazo
-                      </button>
-                      <button onClick={() => setRejectingOffer(null)} className="btn-ghost text-xs">Cancelar</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="card p-6 h-fit">
-          <p className="label-eyebrow mb-4">📜 Historial de ofertas</p>
-          {historial.length === 0 ? (
-            <p className="text-sm text-slate-400">No hay ofertas previas registradas</p>
-          ) : (
-            <div className="space-y-3">
-              {[...historial].reverse().map((h, i) => (
-                <div key={i} className="text-sm border-l-2 border-slate-100 pl-3">
-                  <p className="text-xs text-slate-400 font-mono">{h.fecha}</p>
-                  <p className="font-medium text-navy-900">{h.oferta}</p>
-                  <p className={`text-xs ${h.resultado === 'Aceptado' ? 'text-emerald-600' : 'text-rose-500'}`}>
-                    {h.resultado}{h.motivo ? ` · ${h.motivo}` : ''}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="card p-6 h-fit">
-          <p className="label-eyebrow mb-2">Solicitar más datos</p>
-          <p className="text-xs text-slate-500 mb-3">
-            ¿Falta información del cliente para evaluar una mejor oferta? Puedes usar este complemento informativo solamente en tu propia experiencia de atención al cliente.
+      {client.data_completeness_warning && (
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-400/30 dark:bg-amber-400/10">
+          <p className="text-xs text-amber-800 dark:text-amber-200">
+            ⚠ Información incompleta — las recomendaciones pueden tener menor precisión.
           </p>
-          <button onClick={() => setDataModal(true)} className="btn-secondary text-sm">Solicitar más datos</button>
-          {dataConfirmation && (
-            <p className="text-xs text-emerald-600 mt-2">✓ {dataConfirmation}</p>
-          )}
+          <button
+            onClick={() => setDataModal(true)}
+            className="shrink-0 text-xs font-semibold text-amber-800 underline dark:text-amber-200"
+          >
+            Solicitar datos
+          </button>
         </div>
+      )}
+
+      <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* ===== Área analítica principal ===== */}
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <NboScoreCard
+              percent={k.probPct}
+              tone={k.probTone}
+              offer={topOffer}
+              shapValues={topOffer?.shap_values}
+            />
+            <SavingsCard
+              monto={k.montoProm}
+              precio={k.precioProyectado}
+              ahorro={k.ahorroMensual}
+              ahorroPct={k.ahorroPct}
+              offer={topOffer}
+            />
+          </div>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-navy-800/60">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="label-eyebrow">Avance de la venta</p>
+                <p className="mt-0.5 text-xs text-slate-400">Seguimiento E2E del ofrecimiento</p>
+              </div>
+              {campanias.length > 0 && (
+                <span className="text-[11px] text-slate-400">Campañas previas · {campanias.length}</span>
+              )}
+            </div>
+            <CampaignTimeline campanias={campanias} topOffer={topOffer} />
+            {topOffer && (
+              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-white/10">
+                <E2ETracking
+                  offer={topOffer}
+                  e2eByOffer={e2eByOffer}
+                  e2eChannel={e2eChannel}
+                  e2eContact={e2eContact}
+                  e2eEvidence={e2eEvidence}
+                  e2eObjection={e2eObjection}
+                  e2eSaving={e2eSaving}
+                  onSave={(fields) => saveE2E(topOffer, fields)}
+                />
+              </div>
+            )}
+          </section>
+
+          <LiveCallPanel
+            clientId={id}
+            clientName={client.name}
+            onCopilotEvent={handleCopilotEvent}
+            onE2E={handleOffering}
+            canStart={canGenerate}
+          />
+        </div>
+
+        {/* ===== IA Nexabot ===== */}
+        <NexabotCopilot
+          clientId={id}
+          clientName={client.name}
+          k={k}
+          topOffer={topOffer}
+          speech={topOffer ? speechByOffer[topOffer.oferta] : null}
+          speechLoading={speechLoading}
+          onGenerateSpeech={generateSpeech}
+          copiedKey={copiedKey}
+          onCopy={copySpeech}
+          onRequestData={() => setDataModal(true)}
+          canChat={canSpeech}
+          canSpeech={canSpeech}
+          liveCopilot={liveCopilot}
+        />
       </div>
 
+      {/* ===== Acciones comerciales (sticky) ===== */}
+      <div className="mt-5">
+        <CommercialActions
+          offer={topOffer}
+          status={status}
+          registering={registering}
+          onAccept={(offer) => registerResult(offer, 'accepted')}
+          onOpenReject={(offer) => setRejectingOffer(offer.oferta)}
+          evidence={topOffer ? e2eEvidence[topOffer.offer_id] : ''}
+          onEvidence={(offer, v) => saveE2E(offer, { evidence_type: v, stage: 'evidence' })}
+          saving={topOffer ? e2eSaving === topOffer.offer_id : false}
+          canAccept={hasPermission('register_acceptance')}
+          canReject={hasPermission('register_rejection')}
+          onReport={() => setFeedbackModal(topOffer.oferta)}
+        />
+      </div>
+
+      {/* Modal rechazo */}
+      <RejectModal
+        open={Boolean(rejectingOffer)}
+        offerName={rejectingOffer}
+        reason={rejectReason}
+        onReason={setRejectReason}
+        onConfirm={() => topOffer && registerResult(topOffer, 'rejected', rejectReason)}
+        onCancel={() => { setRejectingOffer(null); setRejectReason('') }}
+        confirming={topOffer ? registering === topOffer.oferta : false}
+      />
+
+      {/* Modal feedback */}
       {feedbackModal && (
-        <div className="fixed inset-0 bg-navy-950/50 flex items-center justify-center px-4 z-50">
-          <div className="card p-6 w-full max-w-sm">
-            <p className="font-display font-semibold text-navy-900 mb-1">¿Por qué esta recomendación no es buena?</p>
-            <p className="text-xs text-slate-400 mb-4">{feedbackModal}</p>
-            <div className="space-y-2 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+            <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">¿Por qué esta recomendación no es buena?</p>
+            <p className="mb-4 text-xs text-slate-400">{feedbackModal}</p>
+            <div className="mb-4 space-y-2">
               {FEEDBACK_OPTIONS.map((opt) => (
-                <label key={opt.value} className="flex items-center gap-2.5 text-sm cursor-pointer">
+                <label key={opt.value} className="flex items-center gap-2.5 text-sm text-navy-900 cursor-pointer dark:text-white">
                   <input
                     type="radio"
                     name="feedback"
@@ -423,28 +433,26 @@ export default function ClientProfile() {
               />
             )}
             <div className="flex gap-2">
-              <button onClick={submitFeedback} disabled={!feedbackType} className="btn-primary text-sm">Enviar feedback</button>
+              <button onClick={submitFeedback} disabled={!feedbackType} className="btn-primary flex-1 text-sm">
+                Enviar
+              </button>
               <button onClick={() => setFeedbackModal(null)} className="btn-ghost text-sm">Cancelar</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Modal solicitar datos */}
       {dataModal && (
-        <div
-          className="fixed inset-0 bg-navy-950/50 flex items-center justify-center px-4 z-50"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Solicitar más datos del cliente"
-        >
-          <div className="card p-6 w-full max-w-sm">
-            <p className="font-display font-semibold text-navy-900 mb-1">Solicitar más datos</p>
-            <p className="text-xs text-slate-400 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/50 px-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-lg dark:bg-navy-800 dark:border dark:border-white/10">
+            <p className="mb-1 font-display font-semibold text-navy-900 dark:text-white">Solicitar más datos</p>
+            <p className="mb-4 text-xs text-slate-400">
               {client.name} · {client.id} — indica qué información falta para mejorar la recomendación.
             </p>
-            <div className="space-y-3 mb-4">
+            <div className="mb-4 space-y-3">
               <div>
-                <label className="label-eyebrow block mb-1.5" htmlFor="missing-field">¿Qué información falta?</label>
+                <label className="label-eyebrow mb-1.5 block" htmlFor="missing-field">¿Qué información falta?</label>
                 <input
                   id="missing-field"
                   value={missingField}
@@ -454,14 +462,13 @@ export default function ClientProfile() {
                 />
               </div>
               <div>
-                <label className="label-eyebrow block mb-1.5" htmlFor="data-notes">Notas</label>
+                <label className="label-eyebrow mb-1.5 block" htmlFor="data-notes">Notas</label>
                 <textarea
                   id="data-notes"
                   value={dataNotes}
                   onChange={(e) => setDataNotes(e.target.value)}
                   className="input"
                   rows={3}
-                  placeholder="Detalle de lo que necesitas…"
                 />
               </div>
             </div>
@@ -469,7 +476,7 @@ export default function ClientProfile() {
               <button
                 onClick={submitDataRequest}
                 disabled={!missingField.trim() || dataSubmitting}
-                className="btn-primary text-sm"
+                className="btn-primary flex-1 text-sm"
               >
                 {dataSubmitting ? 'Enviando…' : 'Enviar solicitud'}
               </button>
@@ -478,15 +485,6 @@ export default function ClientProfile() {
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-function Row({ k, v }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <dt className="text-slate-400">{k}</dt>
-      <dd className="font-medium text-navy-800 text-right">{v ?? 'No disponible'}</dd>
     </div>
   )
 }

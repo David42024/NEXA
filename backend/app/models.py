@@ -148,3 +148,36 @@ class LoginAttempt(Base):
     ip = Column(String(45), nullable=True)
     success = Column(Boolean, default=False)
     attempted_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class Offering(Base):
+    """Seguimiento E2E del ofrecimiento: el viaje completo de una oferta por etapas.
+
+    Etapas (stage): classified -> planned -> contacted -> objection -> evidence -> result
+      - classified  : cliente clasificado y oferta recomendada
+      - planned     : canal de contacto y mensaje definidos (medio de contacto + speech)
+      - contacted   : contactabilidad real (respondio, leyo, no respondio)
+      - objection   : manejo de objeciones / speech de rebate
+      - evidence    : medios probatorios (audio de llamada, registro en plataforma)
+      - result      : resultado de venta final (accepted | rejected)
+    """
+    __tablename__ = "offerings"
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(String(10), ForeignKey("clients.id"), nullable=False, index=True)
+    offer_id = Column(Integer, ForeignKey("offers.id"), nullable=True)
+    asesor_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    channel = Column(String(20))  # WhatsApp | Llamada | App
+    message_text = Column(Text)  # que decir exactamente (speech)
+    stage = Column(String(20), nullable=False, default="classified")
+    contact_status = Column(String(20))  # answered | read | unanswered
+    objection_handled = Column(Boolean, default=False)
+    speech_rebate = Column(Text)  # argumento de rebate usado ante la objecion
+    evidence_type = Column(String(30))  # call_audio | platform_register
+    evidence_ref = Column(String(100))  # id/grabacion/registro
+    result = Column(String(20))  # accepted | rejected
+    rejection_reason = Column(String(50))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+    client = relationship("Client")
+    offer = relationship("Offer")
