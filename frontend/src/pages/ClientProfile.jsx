@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import api from '../utils/api'
-import { computeNboKpis } from '../utils/nboKpis'
+import { computeNboKpis, applyLiveMood } from '../utils/nboKpis'
 import LiveCallPanel from '../components/LiveCallPanel.jsx'
 import ClientHeader from '../components/cockpit/ClientHeader.jsx'
 import NboScoreCard from '../components/cockpit/NboScoreCard.jsx'
@@ -20,6 +20,21 @@ const FEEDBACK_OPTIONS = [
   { value: 'wrong_probability', label: 'Probabilidad parece incorrecta' },
   { value: 'other', label: 'Otro (especificar)' },
 ]
+
+const MOOD_STYLE = {
+  good: 'border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:text-emerald-300',
+  warn: 'border-amber-300 bg-amber-500/10 text-amber-700 dark:border-amber-400/30 dark:text-amber-300',
+  bad: 'border-rose-300 bg-rose-500/10 text-rose-700 dark:border-rose-400/30 dark:text-rose-300',
+  muted: 'border-slate-300 bg-slate-500/10 text-slate-600 dark:border-slate-400/30 dark:text-slate-300',
+}
+
+const MOOD_DRIVE = {
+  2: 'Más dispuesto a comprar ↑',
+  1: 'Abierto a la oferta ↑',
+  0: 'Indeciso →',
+  '-1': 'Fricción en aumento ↓',
+  '-2': 'Riesgo de fricción alta ↓',
+}
 
 const MISSING_FIELD_PRESETS = [
   'Consumo de datos',
@@ -108,6 +123,8 @@ export default function ClientProfile() {
 
   // Copilot en vivo: objeciones detectadas durante la llamada WebRTC
   const [liveCopilot, setLiveCopilot] = useState([])
+  // Animo del cliente en vivo (del backend): ajusta KPIs en tiempo real
+  const [liveMood, setLiveMood] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -205,6 +222,11 @@ export default function ClientProfile() {
 
   // ---- Llamada en vivo (WebRTC): el copilot detecta objeciones en tiempo real ----
   function handleCopilotEvent(event) {
+    if (event.type === 'mood') {
+      // El animo del cliente ajusta los KPIs del dashboard en vivo.
+      setLiveMood({ mood: event.mood, score: event.score, time: Date.now() })
+      return
+    }
     setLiveCopilot((prev) => [...prev.slice(-8), { ...event, time: Date.now() }])
   }
 
@@ -307,6 +329,11 @@ export default function ClientProfile() {
   const canGenerate = hasPermission('view_recommendation')
   const canSpeech = hasPermission('view_speech')
 
+  // ---- KPIs en vivo: la probabilidad se ajusta segun el animo del cliente ----
+  const liveProbPct = topOffer ? applyLiveMood(Math.round(topOffer.probabilidad * 100), liveMood?.score) : k.probPct
+  const liveProbTone =
+    liveProbPct == null ? 'muted' : liveProbPct >= 70 ? 'good' : liveProbPct >= 50 ? 'warn' : 'bad'
+
   return (
     <div>
       <div className="mb-4 flex items-center justify-between gap-4">
@@ -354,10 +381,21 @@ export default function ClientProfile() {
       <div className="mt-5 grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
         {/* ===== Área analítica principal ===== */}
         <div className="space-y-5">
+          {liveMood && (
+            <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-4 py-2.5 ${MOOD_STYLE[liveMood.mood?.tone] || MOOD_STYLE.muted}`}>
+              <p className="text-xs font-semibold">
+                Ánimo del cliente en la llamada: {liveMood.mood?.label}
+              </p>
+              <p className="text-[11px]">
+                {MOOD_DRIVE[String(liveMood.mood?.level)] || 'Neutral'}
+                {liveProbPct != null && ` · probabilidad ajustada en vivo a ${liveProbPct}%`}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
             <NboScoreCard
-              percent={k.probPct}
-              tone={k.probTone}
+              percent={liveProbPct}
+              tone={liveProbTone}
               offer={topOffer}
               shapValues={topOffer?.shap_values}
             />
@@ -418,6 +456,7 @@ export default function ClientProfile() {
             onE2E={handleOffering}
             canStart={canGenerate}
             onCallEnded={() => setDataModal(true)}
+            onCallReset={() => setLiveMood(null)}
           />
         </div>
 

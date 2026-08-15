@@ -14,6 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app import models
 from app.services.call_provider import classify_objection
+from app.services import sentiment_engine
 
 from conftest import login, auth
 
@@ -174,6 +175,40 @@ def test_ws_stt_del_asesor_genera_copilot_asesor(client, monkeypatch):
             assert copilot["objection"] is None
             assert copilot["suggestion"]
             assert "asesor acaba de decir" in captured["message"].lower()
+
+
+def test_ws_deteccion_de_animo_del_cliente(client):
+    """El animo del cliente se detecta en vivo y llega como evento mood al asesor."""
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            _recv_until(asesor_ws, "status")  # active
+
+            cliente_ws.send_json({"type": "stt", "text": "estoy enojado por el mal servicio", "final": True})
+            stt = _recv_until(asesor_ws, "stt")
+            assert stt["text"] == "estoy enojado por el mal servicio"
+
+            mood = _recv_until(asesor_ws, "mood")
+            assert mood["score"] < 0
+            assert mood["mood"]["label"] in ("Molesto", "Enojado")
+
+            cliente_ws.send_json({"type": "stt", "text": "me interesa la oferta, cuanto cuesta", "final": True})
+            mood2 = _recv_until(asesor_ws, "mood", predicate=lambda e: e["type"] == "mood")
+            assert mood2["score"] > mood["score"]
+
+
+def test_sentiment_engine_labels():
+    assert sentiment_engine.mood_from_score(-0.8)["label"] == "Enojado"
+    assert sentiment_engine.mood_from_score(0.0)["label"] == "Indeciso"
+    assert sentiment_engine.mood_from_score(0.6)["label"] == "Entusiasmado"
+    assert sentiment_engine.score_text("me interesa, cuanto cuesta") > 0
+    assert sentiment_engine.score_text("estoy enojado, mal servicio") < 0
 
 
 def test_ws_toggle_modo_asesor_y_bot(client, monkeypatch):

@@ -9,6 +9,16 @@ export const DATOS_WARN = 30
 export const MORA_ALTA = 15
 
 /**
+ * Probabilidad de cierre ajustada en vivo por el animo del cliente detectado
+ * en la llamada (score -1 enojado .. +1 entusiasmado). Mueve hasta +/- 20 pts.
+ */
+export function applyLiveMood(basePct, score) {
+  if (basePct == null) return null
+  const adjusted = basePct + (score ?? 0) * 20
+  return Math.max(2, Math.min(98, Math.round(adjusted)))
+}
+
+/**
  * Deriva los 5 KPIs del perfil del cliente y de la mejor recomendación NBO.
  *
  * - KPI 1 Scoring NBO:      probabilidad de aceptación de la mejor oferta.

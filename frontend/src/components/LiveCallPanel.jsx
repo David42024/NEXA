@@ -28,6 +28,7 @@ export default function LiveCallPanel({
   onE2E,
   canStart = true,
   onCallEnded,
+  onCallReset,
 }) {
   const [copied, setCopied] = useState(false)
   const [savingRecording, setSavingRecording] = useState(false)
@@ -87,6 +88,7 @@ export default function LiveCallPanel({
     if (call.phase === 'idle') {
       lastOfferingRef.current = null
       setLastOffering(null)
+      onCallReset?.()
     }
     if (call.phase === 'active') wasActive.current = true
     if (call.phase === 'ended' && wasActive.current) {

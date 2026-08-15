@@ -28,6 +28,7 @@ from typing import Dict
 from app.config import settings
 from app import models
 from app.services import chat_engine
+from app.services import sentiment_engine
 
 OBJECION_LABELS = {
     "precio": "Precio",
@@ -116,6 +117,7 @@ class CallSession:
         self.ended_at = None
         self.mode = "bot"  # bot | asesor: quien conduce la llamada (cambiable en vivo)
         self.last_ai_at = {}  # cooldown por hablante (cliente / asesor)
+        self.mood_score = 0.0  # animo del cliente en vivo (-1 enojado .. +1 entusiasmado)
 
 
 class P2PWebRTCProvider:
@@ -141,6 +143,17 @@ class P2PWebRTCProvider:
             await ws.send_json(msg)
         except Exception:
             pass
+
+    async def _update_mood(self, sess, text):
+        """Ajusta y emite el animo del cliente en tiempo real (solo asesor)."""
+        delta = sentiment_engine.score_text(text)
+        sess.mood_score = sentiment_engine.smooth_score(sess.mood_score, delta)
+        mood = sentiment_engine.mood_from_score(sess.mood_score)
+        await self._send(sess.asesor_ws, {
+            "type": "mood",
+            "mood": mood,
+            "score": round(sess.mood_score, 2),
+        })
 
     async def attach(self, sess, role, ws, db=None):
         if role == "asesor":
@@ -200,6 +213,8 @@ class P2PWebRTCProvider:
             # Transcripcion en vivo de ambos lados hacia el panel del asesor.
             await self._send(sess.asesor_ws, {"type": "stt", "speaker": speaker, "text": text})
             if msg.get("final"):
+                if speaker == "cliente":
+                    await self._update_mood(sess, text)
                 asyncio.create_task(self._run_copilot(sess, text, speaker, db))
         elif kind == "mode":
             # El asesor decide en vivo si habla el (modo asesor) o el bot (modo bot).

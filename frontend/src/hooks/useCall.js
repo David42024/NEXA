@@ -249,6 +249,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* candidato tardio */ }
         } else if (msg.type === 'copilot') {
           onCopilotEvent?.(msg)
+        } else if (msg.type === 'mood') {
+          onCopilotEvent?.({ ...msg, type: 'mood' })
         } else if (msg.type === 'mode') {
           if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
         } else if (msg.type === 'ended') {

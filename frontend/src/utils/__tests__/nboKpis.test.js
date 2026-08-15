@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeNboKpis,
+  applyLiveMood,
   PROB_GOOD,
   PROB_WARN,
   DATOS_URGENTE,
@@ -191,5 +192,26 @@ describe('KPI 5 — Ventana de Oportunidad', () => {
     const k = computeNboKpis({})
     expect(k.canal).toBeNull()
     expect(k.franja).toBeNull()
+  })
+})
+
+describe('applyLiveMood — probabilidad ajustada por el animo en vivo', () => {
+  it('cliente enojado baja la probabilidad', () => {
+    expect(applyLiveMood(70, -0.8)).toBe(54)
+    expect(applyLiveMood(70, -1)).toBe(50)
+  })
+
+  it('cliente entusiasmado sube la probabilidad', () => {
+    expect(applyLiveMood(60, 0.6)).toBe(72)
+    expect(applyLiveMood(60, 1)).toBe(80)
+  })
+
+  it('sin base devuelve null', () => {
+    expect(applyLiveMood(null, 0.5)).toBeNull()
+  })
+
+  it('clampa entre 2 y 98', () => {
+    expect(applyLiveMood(10, -1)).toBe(2)
+    expect(applyLiveMood(95, 1)).toBe(98)
   })
 })
