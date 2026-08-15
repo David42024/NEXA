@@ -1,7 +1,7 @@
 import React from 'react'
 import { X, Loader2 } from 'lucide-react'
 
-export const REJECTION_REASONS = ['Precio', 'No necesita', 'Ya tiene con otro operador', 'Quiere pensarlo', 'Mal momento']
+export const REJECTION_REASONS = ['Precio', 'Mal Servicio', 'Competencia']
 
 export default function RejectModal({ open, offerName, reason, onReason, onConfirm, onCancel, confirming }) {
   if (!open) return null

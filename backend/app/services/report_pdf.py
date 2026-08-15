@@ -254,7 +254,13 @@ def build_offering_report(db, offering: models.Offering) -> bytes:
     pdf.kv("Plan actual", servicio.get("plan") or "—")
     pdf.kv("Antigüedad", f"{servicio.get('antiguedad_meses') or '—'} meses")
     pdf.kv("Factura promedio", _fmt_money(monto))
-    pdf.kv("Consumo de datos", f"{datos_gb or '—'} GB · agota en {dias_datos or '—'} días")
+    if dias_datos is None:
+        consumo_txt = f"{datos_gb or '—'} GB"
+    elif dias_datos >= 30:
+        consumo_txt = f"{datos_gb or '—'} GB · cubre el ciclo (datos para {dias_datos} días)"
+    else:
+        consumo_txt = f"{datos_gb or '—'} GB · agota en {dias_datos} días (antes del fin de ciclo)"
+    pdf.kv("Consumo de datos", consumo_txt)
     pdf.kv("Reclamos (12m)", str(n_reclamos))
     pdf.kv("Mora promedio", f"{dias_mora} días")
     pdf.kv("Canal preferido", str(canal))

@@ -29,7 +29,7 @@ CANALES = ["WhatsApp", "Llamada", "App"]
 # Canales legacy del primer seed (tipos) -> canales de contacto reales (medios),
 # coherentes con las opciones del E2E (WhatsApp/Llamada/App).
 LEGACY_CANAL_MAP = {"Digital": "App", "Call Center": "Llamada", "Tienda": "WhatsApp"}
-RECHAZO_MOTIVOS = ["Precio", "No necesita", "Ya tiene con otro operador", "Quiere pensarlo", "Mal momento"]
+RECHAZO_MOTIVOS = ["Precio", "Mal Servicio", "Competencia"]
 RECLAMO_MOTIVOS = [
     "Facturación duplicada",
     "Cobro por servicios no contratados",
@@ -400,7 +400,7 @@ def seed_demo_activity(db=None):
                     if o.result == "accepted":
                         accepted_n += 1
                     else:
-                        o.rejection_reason = rnd.choice(["Precio", "No necesita", "Quiere pensarlo", "Ya tiene con otro operador"])
+                        o.rejection_reason = rnd.choice(RECHAZO_MOTIVOS)
                     rec = None
                     if o.result == "accepted":
                         rec = models.Recommendation(

@@ -6,6 +6,7 @@ export const PROB_GOOD = 70
 export const PROB_WARN = 50
 export const DATOS_URGENTE = 20
 export const DATOS_WARN = 30
+export const DATOS_CICLO = 30
 export const MORA_ALTA = 15
 
 /**
@@ -48,11 +49,33 @@ export function computeNboKpis(profile = {}, topOffer = null) {
   const ahorroMensual = montoProm * ahorroPct
   const precioProyectado = montoProm * (1 - ahorroPct)
 
-  // KPI 3 — Días de "Hambre de Datos"
+  // KPI 3 — Días de "Hambre de Datos" (consciente del ciclo de facturación).
+  // Si los días de datos alcanzan el ciclo (30 días), el cliente NO tiene
+  // hambre de datos: tiene de sobra. La urgencia real solo existe cuando los
+  // datos se agotarían ANTES del fin del ciclo.
   const diasAgotamiento = consumo.dias_agotamiento_datos_promedio ?? null
+  const datosCubreCiclo = diasAgotamiento != null && diasAgotamiento >= DATOS_CICLO
   const datosUrgent = diasAgotamiento != null && diasAgotamiento < DATOS_URGENTE
   const datosTone =
-    diasAgotamiento == null ? 'muted' : datosUrgent ? 'bad' : diasAgotamiento <= DATOS_WARN ? 'warn' : 'good'
+    diasAgotamiento == null
+      ? 'muted'
+      : datosCubreCiclo
+      ? 'good'
+      : datosUrgent
+      ? 'bad'
+      : 'warn'
+
+  // Texto con urgencia real: solo se alerta si los datos se agotan antes del ciclo.
+  let datosAlerta = null
+  if (diasAgotamiento != null) {
+    if (datosCubreCiclo) {
+      datosAlerta = `Datos de sobra: alcanza para todo el mes (${diasAgotamiento} días)`
+    } else if (datosUrgent) {
+      datosAlerta = `Prioridad alta · Agotará sus datos en ${diasAgotamiento} días (antes del fin de ciclo)`
+    } else {
+      datosAlerta = `Agotará sus datos en ${diasAgotamiento} días (antes del fin de ciclo)`
+    }
+  }
 
   // KPI 4 — Semáforo de Fricción (suma conceptual de señales)
   const nReclamos = comp.n_reclamos ?? comp.reclamos_12m ?? 0
@@ -76,6 +99,8 @@ export function computeNboKpis(profile = {}, topOffer = null) {
     diasAgotamiento,
     datosUrgent,
     datosTone,
+    datosCubreCiclo,
+    datosAlerta,
     nReclamos,
     diasMora,
     friccionScore,

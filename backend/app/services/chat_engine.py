@@ -69,9 +69,23 @@ def _context_text(ctx: Dict) -> str:
     monto = _fmt(ctx["monto_facturado"], " soles")
     ahorro = ctx.get("monto_facturado") and ctx.get("ahorro_pct") is not None \
         and f" {ctx['monto_facturado'] * ctx['ahorro_pct']:.2f} soles de ahorro/mes" or ""
+    dias = ctx.get("dias_agotamiento")
+    if dias is None:
+        consumo_text = f"Consumo: {_fmt(ctx['datos_gb'], ' GB de datos')}."
+    elif dias >= 30:
+        # Si los datos cubren el ciclo (30 dias) NO hay hambre de datos.
+        consumo_text = (
+            f"Consumo: {_fmt(ctx['datos_gb'], ' GB de datos')}; tiene datos para {dias} dias "
+            "(cubre el ciclo, sin hambre de datos)."
+        )
+    else:
+        consumo_text = (
+            f"Consumo: {_fmt(ctx['datos_gb'], ' GB de datos')}; agotara sus datos en {dias} dias "
+            "(antes del fin del ciclo)."
+        )
     lines = [
         f"Cliente: {ctx['nombre']}, plan {ctx['plan']} con {_fmt(ctx['antiguedad_meses'], ' meses')} de antiguedad.",
-        f"Consumo: {_fmt(ctx['datos_gb'], ' GB de datos')}; agota los datos en {_fmt(ctx['dias_agotamiento'], ' dias')}.",
+        consumo_text,
         f"Factura promedio: {monto}{ahorro}.",
         f"Friccion: {_fmt(ctx['n_reclamos'], ' reclamos')} y {_fmt(ctx['dias_mora'], ' dias de mora')}.",
         f"Mejor contacto: canal {_fmt(ctx['canal'])} en franja {_fmt(ctx['franja'])}.",

@@ -33,7 +33,7 @@ from app.api.interactions import register_interaction_record
 
 router = APIRouter(prefix="/api/live", tags=["live"])
 
-REASONS = ["Precio", "No necesita", "Quiere pensarlo", "Ya tiene con otro operador", "Mal momento"]
+REASONS = ["Precio", "Mal Servicio", "Competencia"]
 
 # Sesiones de llamada activas (demo, en memoria): session_id -> estado.
 _sessions = {}

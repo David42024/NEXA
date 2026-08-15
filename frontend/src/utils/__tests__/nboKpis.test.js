@@ -91,11 +91,13 @@ describe('KPI 2 — Ahorro Real Proyectado', () => {
   })
 })
 
-describe('KPI 3 — Días de Hambre de Datos', () => {
+describe('KPI 3 — Días de Hambre de Datos (consciente del ciclo)', () => {
   it(`< ${DATOS_URGENTE} días -> urgencia, tone bad`, () => {
     const k = computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 15 } }))
     expect(k.datosUrgent).toBe(true)
     expect(k.datosTone).toBe('bad')
+    expect(k.datosCubreCiclo).toBe(false)
+    expect(k.datosAlerta).toMatch(/Agotará sus datos en 15 días/)
   })
 
   it(`19 días también es urgencia (frontera inferior)`, () => {
@@ -105,18 +107,24 @@ describe('KPI 3 — Días de Hambre de Datos', () => {
 
   it(`${DATOS_URGENTE}-${DATOS_WARN} días -> alerta media (warn), sin urgencia`, () => {
     expect(computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 20 } })).datosTone).toBe('warn')
-    expect(computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 30 } })).datosTone).toBe('warn')
+    expect(computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 30 } })).datosTone).toBe('good')
     expect(computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 30 } })).datosUrgent).toBe(false)
   })
 
-  it(`> ${DATOS_WARN} días -> holgura (good)`, () => {
-    expect(computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 31 } })).datosTone).toBe('good')
+  it(`> ${DATOS_WARN} días -> cubre el ciclo, sin hambre de datos (good)`, () => {
+    const k = computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: 38 } }))
+    expect(k.datosTone).toBe('good')
+    expect(k.datosCubreCiclo).toBe(true)
+    expect(k.datosUrgent).toBe(false)
+    expect(k.datosAlerta).toMatch(/Datos de sobra/)
   })
 
   it('valor ausente -> muted y sin urgencia', () => {
     const k = computeNboKpis(mkProfile({ consumo: { dias_agotamiento_datos_promedio: undefined } }))
     expect(k.datosTone).toBe('muted')
     expect(k.datosUrgent).toBe(false)
+    expect(k.datosCubreCiclo).toBe(false)
+    expect(k.datosAlerta).toBeNull()
   })
 })
 
