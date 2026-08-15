@@ -70,6 +70,32 @@ export default function LiveCallPanel({
       .catch(() => {})
   }
 
+  // Descarga el audio de la llamada: blob local (fallback) o el del backend
+  // (grabacion completa del cliente, que incluye la voz del bot).
+  function downloadRecording() {
+    const url = call.recordingUrl
+    if (!url) return
+    const save = (blob) => {
+      const objUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = objUrl
+      a.download = `llamada-${clientId}.webm`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000)
+    }
+    if (url.startsWith('blob:')) {
+      fetch(url).then((r) => r.blob()).then(save).catch(() => {})
+      return
+    }
+    const token = localStorage.getItem('nexa_token')
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.blob() })
+      .then(save)
+      .catch(() => {})
+  }
+
   const call = useAsesorCall({
     clientId,
     onCopilotEvent,
@@ -281,14 +307,13 @@ export default function LiveCallPanel({
               </button>
             )}
             {call.recordingUrl && (
-              <a
-                href={call.recordingUrl}
-                download={`llamada-${clientId}.webm`}
+              <button
+                onClick={downloadRecording}
                 className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-500/20 dark:border-cyan-400/30 dark:text-cyan-300"
               >
                 <FileDown className="h-4 w-4" />
                 Descargar audio · {fmtDuration(call.duration)}
-              </a>
+              </button>
             )}
             <button onClick={call.reset} className="btn-secondary w-full text-xs">
               Nueva llamada

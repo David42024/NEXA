@@ -60,6 +60,35 @@ def test_start_cliente_inexistente(client):
     assert resp.status_code == 404
 
 
+def test_grabacion_subida_por_cliente_y_descargada_por_asesor(client):
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    # Sin grabacion aun -> 404
+    resp = client.get(f"/api/calls/{call_id}/recording", headers=auth(token))
+    assert resp.status_code == 404
+
+    # Token de cliente invalido -> 401
+    resp = client.post(
+        f"/api/calls/{call_id}/recording?token=malo",
+        files={"file": ("llamada.webm", b"audio-bytes", "audio/webm")},
+    )
+    assert resp.status_code == 401
+
+    # El cliente sube el audio completo (cliente + asesor + bot)
+    resp = client.post(
+        f"/api/calls/{call_id}/recording?token={data['cliente_token']}",
+        files={"file": ("llamada.webm", b"audio-bytes", "audio/webm")},
+    )
+    assert resp.status_code == 200
+
+    # El asesor lo descarga con su JWT
+    resp = client.get(f"/api/calls/{call_id}/recording", headers=auth(token))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "audio/webm"
+    assert resp.content == b"audio-bytes"
+
+
 def test_ws_relay_de_senalizacion(client):
     """Asesor envia offer; cliente recibe offer, responde answer; ICE se reenvia."""
     token, data = _start(client)

@@ -44,16 +44,44 @@ function createSTT(ws, speaker, isActive, isPaused) {
   rec.lang = 'es-PE'
   rec.continuous = true
   rec.interimResults = true
+
+  // Resumen por pausa: no se manda cada palabra; se envia la frase completa
+  // cuando hay un resultado final o tras una pausa fuerte de voz (~1.6s).
+  let flushedUntil = 0
+  let lastSent = ''
+  let pauseTimer = null
+
+  const send = (text) => {
+    const t = (text || '').trim()
+    if (!t || t === lastSent) return
+    lastSent = t
+    ws.send(JSON.stringify({ type: 'stt', speaker, text: t, final: true }))
+  }
+
   rec.onresult = (e) => {
-    for (let i = e.resultIndex; i < e.results.length; i += 1) {
-      const result = e.results[i]
-      const text = result[0].transcript.trim()
-      if (!text) continue
-      ws.send(JSON.stringify({ type: 'stt', speaker, text, final: result.isFinal }))
+    let finals = ''
+    for (let i = flushedUntil; i < e.results.length; i += 1) {
+      const r = e.results[i]
+      if (r.isFinal) {
+        finals = (finals + ' ' + r[0].transcript.trim()).trim()
+        flushedUntil = i + 1
+      }
+    }
+    if (finals) {
+      clearTimeout(pauseTimer)
+      send(finals)
+      return
+    }
+    // Sin final todavia: acumula lo provisional y espera la pausa para mandarlo.
+    const interim = e.results[e.results.length - 1][0].transcript.trim()
+    if (interim && interim !== lastSent) {
+      clearTimeout(pauseTimer)
+      pauseTimer = setTimeout(() => send(interim), 1600)
     }
   }
   rec.onerror = () => {}
   rec.onend = () => {
+    clearTimeout(pauseTimer)
     // Reutiliza la MISMA instancia; crear una nueva tras cada pausa deja el
     // reconocimiento mudo en Chrome (InvalidStateError). Solo reinicia si la
     // llamada sigue activa y no estamos en pausa (mientras habla el bot).
@@ -114,6 +142,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   const recordingUrlRef = useRef(null)
   const phaseRef = useRef('idle')
   const endedRef = useRef(false)
+  const callIdRef = useRef(null)
+  const serverRecordingRef = useRef(false)
 
   function setPhaseAll(value) {
     phaseRef.current = value
@@ -151,6 +181,12 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: 'audio/webm' })
+        if (serverRecordingRef.current) {
+          // Ya llego la grabacion completa del cliente (con el bot): no la pises.
+          recMediaRef.current = null
+          try { actx.close() } catch { /* ya cerrado */ }
+          return
+        }
         if (recordingUrlRef.current) URL.revokeObjectURL(recordingUrlRef.current)
         recordingUrlRef.current = URL.createObjectURL(blob)
         setRecordingUrl(recordingUrlRef.current)
@@ -201,6 +237,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
 
     try {
       const { data } = await api.post('/api/calls/start', { client_id: clientId })
+      callIdRef.current = data.call_id
       setCallInfo({ ...data, url: callUrl(data.call_id, data.cliente_token, data.client_name) })
 
       const token = localStorage.getItem('nexa_token')
@@ -251,6 +288,11 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           onCopilotEvent?.(msg)
         } else if (msg.type === 'mood') {
           onCopilotEvent?.({ ...msg, type: 'mood' })
+        } else if (msg.type === 'recording') {
+          // La grabacion completa (con la voz del bot) ya esta lista en el backend.
+          serverRecordingRef.current = true
+          const id = callIdRef.current || callInfo?.call_id
+          if (id) setRecordingUrl(`${import.meta.env.VITE_API_URL || ''}/api/calls/${id}/recording`)
         } else if (msg.type === 'mode') {
           if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
         } else if (msg.type === 'ended') {
@@ -302,6 +344,8 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     setError(null)
     setCallInfo(null)
     setMuted(false)
+    callIdRef.current = null
+    serverRecordingRef.current = false
     if (recordingUrlRef.current) {
       URL.revokeObjectURL(recordingUrlRef.current)
       recordingUrlRef.current = null
@@ -346,37 +390,105 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
   const utteranceRef = useRef(null)
   const phaseRef = useRef('incoming')
   const endedRef = useRef(false)
-  const swappedRef = useRef(false)
-  const micTrackRef = useRef(null)
+  const remoteStreamRef = useRef(null)
   const audioCtxRef = useRef(null)
+  const recRef2 = useRef(null) // grabacion del lado del cliente
 
   function setPhaseAll(value) {
     phaseRef.current = value
     setPhase(value)
   }
 
-  // Vuelve a poner el micro del cliente en el canal WebRTC (la pista de audio
-  // del bot fue intercambiada mientras hablaba, para que el asesor la escuche).
-  function restoreMic() {
-    if (!swappedRef.current) return
-    swappedRef.current = false
-    const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === 'audio')
-    const mic = micTrackRef.current || streamRef.current?.getAudioTracks()[0]
-    if (sender && mic) sender.replaceTrack(mic).catch(() => {})
-    if (botAudioRef?.current) botAudioRef.current.src = ''
+  // Graba la llamada en el dispositivo del cliente (micro + asesor + voz del bot,
+  // que aqui es donde suena). Asi el audio descargable SI incluye al bot.
+  // Arranca apenas se contesta para capturar hasta el saludo del bot.
+  function startClientRecording() {
+    if (recRef2.current || !window.MediaRecorder || !window.AudioContext) return
+    const local = streamRef.current
+    const botEl = botAudioRef?.current
+    if (!local) return
+    try {
+      const actx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)()
+      if (!audioCtxRef.current) audioCtxRef.current = actx
+      if (actx.state === 'suspended') actx.resume().catch(() => {})
+      const dest = actx.createMediaStreamDestination()
+      const connect = (stream) => {
+        stream.getAudioTracks().forEach((t) => {
+          const src = actx.createMediaStreamSource(new MediaStream([t]))
+          src.connect(dest)
+        })
+      }
+      connect(local)   // voz del cliente
+      if (botEl) {
+        // El audio del bot pasa por el grafo: se oye (destination) y se graba (dest).
+        const botSrc = actx.createMediaElementSource(botEl)
+        botSrc.connect(dest)
+        botSrc.connect(actx.destination)
+      }
+      const recorder = new MediaRecorder(dest.stream)
+      const chunks = []
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' })
+        chunks.length = 0
+        try { recRef2.current?.actx?.close() } catch { /* ya cerrado */ }
+        if (audioCtxRef.current === recRef2.current?.actx) audioCtxRef.current = null
+        recRef2.current = null
+        uploadRecording(blob)
+      }
+      recorder.start()
+      recRef2.current = { recorder, actx, dest }
+    } catch { /* grabacion no disponible */ }
+  }
+
+  // Conecta la voz del asesor al grafo cuando la pista remota ya existe.
+  function connectRemoteRecording() {
+    const rec = recRef2.current
+    const remote = remoteStreamRef.current
+    if (!rec || !remote) return
+    try {
+      remote.getAudioTracks().forEach((t) => {
+        rec.actx.createMediaStreamSource(new MediaStream([t])).connect(rec.dest)
+      })
+    } catch { /* sin pista remota */ }
+  }
+
+  function stopClientRecording() {
+    const rec = recRef2.current
+    if (rec?.recorder && rec.recorder.state !== 'inactive') {
+      try { rec.recorder.stop() } catch { /* ya detenido */ }
+    } else {
+      try { rec?.actx?.close() } catch { /* ya cerrado */ }
+      if (audioCtxRef.current === rec?.actx) audioCtxRef.current = null
+      recRef2.current = null
+    }
+  }
+
+  // Sube el audio grabado para que el asesor lo descargue (grabacion completa).
+  function uploadRecording(blob) {
+    try {
+      const fd = new FormData()
+      fd.append('file', blob, `llamada-${callId}.webm`)
+      fetch(`${import.meta.env.VITE_API_URL || ''}/api/calls/${callId}/recording?token=${clientToken}`, {
+        method: 'POST',
+        body: fd,
+      }).catch(() => {})
+    } catch { /* sin subida */ }
   }
 
   const cleanup = useCallback(() => {
     stopTimer()
+    stopClientRecording()
     stopStream()
     stopSTT()
-    restoreMic()
     if (utteranceRef.current) {
       window.speechSynthesis?.cancel()
       utteranceRef.current = null
     }
-    audioCtxRef.current?.close().catch(() => {})
-    audioCtxRef.current = null
+    if (!recRef2.current) {
+      audioCtxRef.current?.close().catch(() => {})
+      audioCtxRef.current = null
+    }
     pcRef.current?.close()
     pcRef.current = null
   }, [stopTimer, stopStream])
@@ -423,13 +535,12 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
     const done = () => {
       utteranceRef.current = null
       setBotSpeaking(false)
-      restoreMic()
       // Pequeña pausa para que el eco del audio se asiente, luego espera al cliente.
       setTimeout(() => restartSTT(), 400)
     }
     const synthFallback = () => {
-      // Sin audio servido (TTS caido): habla por speechSynthesis (no entra en la
-      // grabacion del asesor, pero la conversacion sigue funcionando).
+      // Sin audio servido (TTS caido): habla por speechSynthesis. No entra en la
+      // grabacion, pero la conversacion sigue funcionando.
       if (!window.speechSynthesis) { done(); return }
       const u = new SpeechSynthesisUtterance(text)
       u.lang = 'es-PE'
@@ -443,30 +554,18 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
       window.speechSynthesis.speak(u)
     }
     const el = botAudioRef?.current
-    // Ruta preferida: el audio del bot via <audio> -> captureStream -> replaceTrack,
-    // asi el asesor lo oye por WebRTC y la grabacion de la llamada lo capta.
-    if (el && typeof el.captureStream === 'function') {
+    // Voz del bot por <audio>: el cliente la oye y la grabacion local la capta.
+    if (el) {
       try {
         el.onended = done
+        el.onerror = () => { synthFallback() }
         el.crossOrigin = 'anonymous'
         el.src = `${import.meta.env.VITE_API_URL || ''}/api/tts?text=${encodeURIComponent(text)}`
-        const stream = el.captureStream()
-        const botTrack = stream.getAudioTracks()[0]
-        if (!botTrack) { synthFallback(); return }
-        const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === 'audio')
-        if (!sender) { synthFallback(); return }
-        const mic = streamRef.current?.getAudioTracks()[0]
-        micTrackRef.current = mic || null
-        el.onplaying = () => {
-          sender.replaceTrack(botTrack).catch(() => {})
-          swappedRef.current = true
-        }
-        el.onerror = () => { try { sender.replaceTrack(mic).catch(() => {}) } catch {} ; swappedRef.current = false; synthFallback() }
-        el.play()
-          .catch(() => { synthFallback() })
+        el.load()
+        el.play().catch(() => { synthFallback() })
         return
       } catch {
-        /* falla al capturar -> speechSynthesis */
+        /* falla -> speechSynthesis */
       }
     }
     synthFallback()
@@ -495,6 +594,10 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
       audioCtxRef.current = ctx
     } catch { /* audio ya disponible */ }
 
+    // La grabacion arranca ya: captura el micro y el audio del bot (<audio>).
+    // La pista del asesor se conecta al grafo cuando llegue (pc.ontrack).
+    startClientRecording()
+
     const ws = new WebSocket(wsUrl(`/api/calls/ws/${callId}?role=cliente&token=${clientToken}`))
     wsRef.current = ws
 
@@ -506,7 +609,11 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
             ws.send(JSON.stringify({ type: 'candidate', candidate }))
           )
           pcRef.current = pc
-          pc.ontrack = (e) => onRemoteStream?.(e.streams[0])
+          pc.ontrack = (e) => {
+            if (e.streams?.[0]) remoteStreamRef.current = e.streams[0]
+            connectRemoteRecording()
+            onRemoteStream?.(e.streams[0])
+          }
           await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp })
           const answer = await pc.createAnswer()
           await pc.setLocalDescription(answer)

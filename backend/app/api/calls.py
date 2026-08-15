@@ -19,7 +19,8 @@ SIP/Asterisk y el frontend no cambia.
 """
 import asyncio
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -95,6 +96,41 @@ def start_call(
         "client_id": client.id,
         "offering_id": offering.id,
     }
+
+
+@router.post("/{call_id}/recording")
+async def upload_recording(call_id: str, token: str, file: UploadFile = File(...)):
+    """El cliente sube la grabacion completa (cliente + asesor + voz del bot).
+
+    El audio se graba en el navegador del cliente (donde suena el bot), se sube
+    aqui y el asesor la descarga al finalizar. Almacenamiento en memoria: apto
+    para el MVP (una sola instancia).
+    """
+    sess = provider.get_session(call_id)
+    if not sess or token != sess.cliente_token:
+        raise HTTPException(status_code=401, detail="Token de cliente invalido")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Archivo vacio")
+    sess.recording = data
+    await provider.notify_recording(sess)
+    return {"status": "ok", "call_id": call_id}
+
+
+@router.get("/{call_id}/recording")
+def download_recording(
+    call_id: str,
+    current_user: models.User = Depends(require_permission("view_recommendation")),
+):
+    """Descarga del asesor: audio completo de la llamada (incluye al bot)."""
+    sess = provider.get_session(call_id)
+    if not sess or not sess.recording:
+        raise HTTPException(status_code=404, detail="Grabacion no disponible")
+    return Response(
+        content=sess.recording,
+        media_type="audio/webm",
+        headers={"Content-Disposition": f'attachment; filename="llamada-{call_id}.webm"'},
+    )
 
 
 @router.websocket("/ws/{call_id}")

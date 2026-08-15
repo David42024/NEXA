@@ -118,6 +118,7 @@ class CallSession:
         self.mode = "bot"  # bot | asesor: quien conduce la llamada (cambiable en vivo)
         self.last_ai_at = {}  # cooldown por hablante (cliente / asesor)
         self.mood_score = 0.0  # animo del cliente en vivo (-1 enojado .. +1 entusiasmado)
+        self.recording = None  # bytes del audio completo subido por el cliente
 
 
 class P2PWebRTCProvider:
@@ -154,6 +155,10 @@ class P2PWebRTCProvider:
             "mood": mood,
             "score": round(sess.mood_score, 2),
         })
+
+    async def notify_recording(self, sess):
+        """Avisa al asesor que la grabacion completa del cliente ya esta lista."""
+        await self._send(sess.asesor_ws, {"type": "recording"})
 
     async def attach(self, sess, role, ws, db=None):
         if role == "asesor":
