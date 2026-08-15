@@ -1,0 +1,23 @@
+oferta_id,nombre_oferta,tipo_oferta,segmento_objetivo,es_movistar_total,precio_mensual,ahorro_pct,gb_incluidos,cluster_hogar,descripcion_bundle,descripcion_corta,es_gigas_ilimitados
+OFE_001,Plan Movil Premium 1,plan_movil,movil,False,69.9,0,9999,no_aplica,sin_bundle,Plan Movil Premium 1 - 9999GB - S/69.9,True
+OFE_002,Plan Movil Premium 2,plan_movil,movil,False,49.9,0,9999,no_aplica,sin_bundle,Plan Movil Premium 2 - 9999GB - S/49.9,True
+OFE_003,Plan Movil Básico 3,plan_movil,movil,False,99.9,0,20,no_aplica,sin_bundle,Plan Movil Básico 3 - 20GB - S/99.9,False
+OFE_004,Plan Movil Premium 4,plan_movil,movil,False,49.9,0,50,no_aplica,sin_bundle,Plan Movil Premium 4 - 50GB - S/49.9,False
+OFE_005,Plan Movil Premium 5,plan_movil,movil,False,49.9,0,9999,no_aplica,sin_bundle,Plan Movil Premium 5 - 9999GB - S/49.9,True
+OFE_006,Plan Hogar Premium 6,plan_hogar,hogar,False,159.9,0,9999,trio,Internet + TV + Fijo,Plan Hogar Premium 6 - 9999GB - S/159.9,True
+OFE_007,Plan Hogar Premium 7,plan_hogar,hogar,False,89.9,0,9999,mono,Internet,Plan Hogar Premium 7 - 9999GB - S/89.9,True
+OFE_008,Plan Hogar Premium 8,plan_hogar,hogar,False,89.9,0,9999,duo,Internet + TV,Plan Hogar Premium 8 - 9999GB - S/89.9,True
+OFE_009,Plan Hogar Premium 9,plan_hogar,hogar,False,89.9,0,9999,duo,Internet + TV,Plan Hogar Premium 9 - 9999GB - S/89.9,True
+OFE_010,Plan Hogar Premium 10,plan_hogar,hogar,False,159.9,0,9999,mono,Internet,Plan Hogar Premium 10 - 9999GB - S/159.9,True
+OFE_011,Movistar Total Premium 11,movistar_total,ambos,True,149.9,30,9999,trio,Internet + TV + Fijo + Movil,Movistar Total Premium 11 - 9999GB - S/149.9,True
+OFE_012,Movistar Total Premium 12,movistar_total,ambos,True,199.9,20,9999,duo,Internet + TV + Movil,Movistar Total Premium 12 - 9999GB - S/199.9,True
+OFE_013,Movistar Total Premium 13,movistar_total,ambos,True,149.9,50,9999,duo,Internet + TV + Movil,Movistar Total Premium 13 - 9999GB - S/149.9,True
+OFE_014,Upgrade Premium 14,upgrade,movil,False,15.0,0,9999,no_aplica,sin_bundle,Upgrade Premium 14 - 9999GB - S/15.0,True
+OFE_015,Upgrade Premium 15,upgrade,hogar,False,15.0,0,9999,no_aplica,sin_bundle,Upgrade Premium 15 - 9999GB - S/15.0,True
+OFE_016,Upgrade Premium 16,upgrade,hogar,False,20.0,0,9999,no_aplica,sin_bundle,Upgrade Premium 16 - 9999GB - S/20.0,True
+OFE_017,Equipo Básico 17,equipo,movil,False,899.0,0,0,no_aplica,sin_bundle,Equipo Básico 17 - 0GB - S/899.0,False
+OFE_018,Equipo Básico 18,equipo,movil,False,3500.0,0,0,no_aplica,sin_bundle,Equipo Básico 18 - 0GB - S/3500.0,False
+OFE_019,Equipo Básico 19,equipo,movil,False,899.0,0,0,no_aplica,sin_bundle,Equipo Básico 19 - 0GB - S/899.0,False
+OFE_020,Paquete Adicional Básico 20,paquete_adicional,movil,False,5.0,0,1,no_aplica,sin_bundle,Paquete Adicional Básico 20 - 1GB - S/5.0,False
+OFE_021,Paquete Adicional Básico 21,paquete_adicional,movil,False,5.0,0,1,no_aplica,sin_bundle,Paquete Adicional Básico 21 - 1GB - S/5.0,False
+OFE_022,Paquete Adicional Básico 22,paquete_adicional,movil,False,5.0,0,5,no_aplica,sin_bundle,Paquete Adicional Básico 22 - 5GB - S/5.0,False
