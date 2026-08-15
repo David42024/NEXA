@@ -331,10 +331,11 @@ def seed_demo_activity(db=None):
         db = SessionLocal()
     try:
         # Idempotencia: limpia actividad demo previa antes de re-sembrar.
+        # Interaction referencia Recommendation (FK), por eso se borran antes.
         db.query(models.FunnelDaily).delete()
-        db.query(models.Offering).delete()
-        db.query(models.Recommendation).delete()
         db.query(models.Interaction).delete()
+        db.query(models.Recommendation).delete()
+        db.query(models.Offering).delete()
 
         # Asegura 3 asesores demo (el supervisor ve su desempeño).
         DEMO_ASESORES = [
@@ -352,7 +353,9 @@ def seed_demo_activity(db=None):
                 db.flush()
             asesores.append(u)
         offers = db.query(models.Offer).all()
-        clients = db.query(models.Client).all()
+        # Con 100k+ clientes reales no se cargan todos a memoria (OOM en 512MB):
+        # la actividad demo se arma sobre una muestra acotada de clientes.
+        clients = db.query(models.Client).order_by(models.Client.id).limit(200).all()
         if not asesores or not offers or not clients:
             print("Seed de actividad omitido: faltan usuarios/ofertas/clientes.")
             return
@@ -456,16 +459,49 @@ def seed_demo_activity(db=None):
             db.close()
 
 
+def _clients_batches(db, batch=1000, commit_each=False, batch_size=500, solo_sinteticos=False):
+    """Itera clientes por lotes (order by id) sin cargarlos a memoria.
+
+    Con 100k+ clientes reales (cargados desde CSV) un `.all()` revienta la RAM en
+    instancias pequeñas (Render 512MB); este barrido procesa de a `batch`.
+    Si `commit_each`, commitea cada `batch_size` clientes para que el session no
+    retenga los objetos modificados (los backfills mutan el profile).
+
+    Si `solo_sinteticos`, solo recorre los clientes demo (id != CLI_*): los reales
+    ya vienen completos del csv_loader y recorrer los 100k en cada arranque es lento
+    y cae la conexion SSL de Neon con commits frecuentes.
+    """
+    q = db.query(models.Client).order_by(models.Client.id)
+    if solo_sinteticos:
+        q = q.filter(~models.Client.id.like("CLI%"))
+    last_id = None
+    done = 0
+    while True:
+        qq = q
+        if last_id:
+            qq = qq.filter(models.Client.id > last_id)
+        rows = qq.limit(batch).all()
+        if not rows:
+            break
+        for row in rows:
+            yield row
+            done += 1
+            if commit_each and done % batch_size == 0:
+                db.commit()
+        last_id = rows[-1].id
+    if commit_each:
+        db.commit()
+
+
 def backfill_reclamos(db) -> int:
     """Backfill idempotente: agrega el historial de reclamos a perfiles ya sembrados.
 
     Los clientes antiguos no tienen el array `reclamos`; se genera uno consistente
     con su contador `n_reclamos` (estable por cliente via seed=id). No toca a los
-    que ya lo tienen.
+    que ya lo tienen. Solo clientes sinteticos: los reales (CLI_*) vienen completos.
     """
-    clients = db.query(models.Client).all()
     updated = 0
-    for c in clients:
+    for c in _clients_batches(db, commit_each=True, solo_sinteticos=True):
         # deepcopy: si no, SQLAlchemy JSON no detecta el cambio en dicts anidados
         # y el UPDATE nunca llega a la BD.
         profile = copy.deepcopy(c.profile or {})
@@ -480,8 +516,6 @@ def backfill_reclamos(db) -> int:
         comp["reclamos_abiertos"] = sum(1 for r in comp["reclamos"] if r["estado"] != "Resuelto")
         c.profile = profile
         updated += 1
-    if updated:
-        db.commit()
     return updated
 
 
@@ -489,10 +523,10 @@ def backfill_canales(db) -> int:
     """Backfill idempotente: normaliza los canales legacy (Digital/Call Center/Tienda)
     a los canales de contacto reales (WhatsApp/Llamada/App) para que el chip
     "Canal preferido" sea coherente con las opciones del E2E.
+    Solo clientes sinteticos: los reales (CLI_*) vienen normalizados del csv_loader.
     """
-    clients = db.query(models.Client).all()
     updated = 0
-    for c in clients:
+    for c in _clients_batches(db, commit_each=True, solo_sinteticos=True):
         profile = copy.deepcopy(c.profile or {})
         comp = profile.get("comportamiento") or {}
         if not isinstance(comp, dict):
@@ -507,8 +541,6 @@ def backfill_canales(db) -> int:
         if changed:
             c.profile = profile
             updated += 1
-    if updated:
-        db.commit()
     return updated
 
 
@@ -525,10 +557,10 @@ CAMPANIA_PLAN = {
 def backfill_campania_ofertas(db) -> int:
     """Backfill idempotente: agrega el plan/oferta objetivo a las campanas del
     timeline de clientes ya sembrados (antes de que ese campo existiera).
+    Solo clientes sinteticos: los reales (CLI_*) vienen con oferta del csv_loader.
     """
-    clients = db.query(models.Client).all()
     updated = 0
-    for c in clients:
+    for c in _clients_batches(db, commit_each=True, solo_sinteticos=True):
         profile = copy.deepcopy(c.profile or {})
         hc = profile.get("historial_campanias")
         if not isinstance(hc, list):
@@ -541,8 +573,6 @@ def backfill_campania_ofertas(db) -> int:
         if changed:
             c.profile = profile
             updated += 1
-    if updated:
-        db.commit()
     return updated
     seed()
     seed_demo_activity()

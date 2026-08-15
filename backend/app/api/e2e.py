@@ -166,14 +166,20 @@ def update_offering(
 @router.get("/offerings")
 def list_offerings(
     client_id: str = Query(...),
+    limit: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
     _user=Depends(require_permission("view_client_profile")),
 ):
-    """Historial de ofrecimientos (seguimiento E2E) de un cliente, para el perfil."""
+    """Historial de ofrecimientos (seguimiento E2E) de un cliente, para el perfil.
+
+    Con datos reales un cliente puede tener cientos/miles de ofrecimientos, por eso
+    se devuelve acotado a los `limit` más recientes en vez de todos.
+    """
     rows = (
         db.query(models.Offering)
         .filter(models.Offering.client_id == client_id)
         .order_by(models.Offering.id.desc())
+        .limit(limit)
         .all()
     )
     return [_out(db, r) for r in rows]
@@ -207,47 +213,62 @@ def e2e_report(
     `stages[].value` = ofrecimientos que alcanzaron al menos esa etapa (embudo).
     """
     since = datetime.combine(date.today() - timedelta(days=days), datetime.min.time())
-    rows = (
-        db.query(models.Offering)
-        .filter(models.Offering.created_at >= since)
-        .all()
-    )
+    base = db.query(models.Offering).filter(models.Offering.created_at >= since)
+    total = base.count()
 
-    reached = {}
-    for s in STAGE_ORDER:
-        idx = _stage_index(s)
-        reached[s] = sum(1 for r in rows if _stage_index(r.stage) >= idx)
+    # Agregaciones SQL por grupo (con 300k+ ofrecimientos NO se cargan filas a RAM).
+    from sqlalchemy import func as safunc
+
+    def _group_counts(column):
+        rows = (
+            db.query(column, safunc.count(models.Offering.id))
+            .filter(models.Offering.created_at >= since)
+            .group_by(column)
+            .all()
+        )
+        return [
+            schemas.E2EBreakdown(label=k, value=v)
+            for k, v in sorted(((k, v) for k, v in rows if k), key=lambda x: -x[1])
+        ]
 
     stages = []
     prev = None
     for s in STAGE_ORDER:
-        st = schemas.E2EStage(key=s, label=STAGE_LABELS[s], value=reached[s])
+        value = (
+            db.query(safunc.count(models.Offering.id))
+            .filter(models.Offering.created_at >= since, models.Offering.stage.in_(STAGE_ORDER[_stage_index(s):]))
+            .scalar()
+            or 0
+        )
+        st = schemas.E2EStage(key=s, label=STAGE_LABELS[s], value=value)
         if prev is not None:
-            st.pct_of_previous = round((reached[s] / prev) * 100, 1) if prev else None
+            st.pct_of_previous = round((value / prev) * 100, 1) if prev else None
         stages.append(st)
-        prev = reached[s]
+        prev = value
 
-    def _count(fn):
-        d = {}
-        for r in rows:
-            v = fn(r)
-            if v:
-                d[v] = d.get(v, 0) + 1
-        return [
-            schemas.E2EBreakdown(label=k, value=v)
-            for k, v in sorted(d.items(), key=lambda x: -x[1])
-        ]
+    objections_reached = (
+        db.query(safunc.count(models.Offering.id))
+        .filter(models.Offering.created_at >= since, models.Offering.stage.in_(STAGE_ORDER[_stage_index("objection"):]))
+        .scalar()
+        or 0
+    )
+    rebates = (
+        db.query(safunc.count(models.Offering.id))
+        .filter(models.Offering.created_at >= since, models.Offering.objection_status == "rebate")
+        .scalar()
+        or 0
+    )
 
     return schemas.FunnelE2EReport(
         stages=stages,
-        total=len(rows),
-        channels=_count(lambda r: r.channel),
-        contact_status=_count(lambda r: r.contact_status),
+        total=total,
+        channels=_group_counts(models.Offering.channel),
+        contact_status=_group_counts(models.Offering.contact_status),
         objections={
-            "alcanzaron_objecion": reached.get("objection", 0),
-            "manejadas_con_rebate": sum(1 for r in rows if r.objection_status == "rebate"),
+            "alcanzaron_objecion": objections_reached,
+            "manejadas_con_rebate": rebates,
         },
-        evidence_types=_count(lambda r: r.evidence_type),
-        results=_count(lambda r: r.result),
-        rejection_reasons=_count(lambda r: r.rejection_reason),
+        evidence_types=_group_counts(models.Offering.evidence_type),
+        results=_group_counts(models.Offering.result),
+        rejection_reasons=_group_counts(models.Offering.rejection_reason),
     )

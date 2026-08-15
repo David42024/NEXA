@@ -341,6 +341,7 @@ def _offering_fields(row: dict, offer_id_by_code: dict):
         "contact_status": "answered" if contactado else "unanswered",
         "objection_status": "rebate" if rebate else "none",
         "evidence_type": evidence,
+        "evidence_ref": row.get("ofrecimiento_id", ""),
         "result": result,
         "rejection_reason": RECHAZO_MAP.get(row.get("motivo_rechazo", "")),
         "created_at": fecha,
@@ -395,9 +396,18 @@ def load_offerings(db, path: Path = None) -> dict:
     if not path.exists():
         print(f"[csv_loader] No existe {path.name}; se omite la carga de ofrecimientos.")
         return stats
-    if db.query(models.Offering).filter(models.Offering.client_id.like("CLI%")).first():
-        print("[csv_loader] Ofrecimientos reales ya cargados; se omite.")
-        return stats
+
+    # Reanudable: ids de ofrecimiento externos (OFR_*) ya insertados, guardados en
+    # evidence_ref. Permite retomar una carga interrumpida sin duplicar filas ni funnel.
+    existing = {
+        r[0]
+        for r in db.query(models.Offering.evidence_ref)
+        .filter(models.Offering.client_id.like("CLI%"))
+        .filter(models.Offering.evidence_ref.isnot(None))
+        .all()
+    }
+    if existing:
+        print(f"[csv_loader] Retomando carga de ofrecimientos: {len(existing)} ya insertados.")
 
     offer_id_by_code = {o.code: o.id for o in db.query(models.Offer).all()}
 
@@ -407,8 +417,13 @@ def load_offerings(db, path: Path = None) -> dict:
     historial_ofertas = {}
 
     count = 0
+    pending_accept = []  # (rec, campos de interaction) -> flush por lote
     with open(path, encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
+            ext_id = row.get("ofrecimiento_id", "")
+            if ext_id and ext_id in existing:
+                continue
+
             fields = _offering_fields(row, offer_id_by_code)
             offering = models.Offering(**fields)
             db.add(offering)
@@ -438,17 +453,15 @@ def load_offerings(db, path: Path = None) -> dict:
                 ho.append(entry)
 
             # Interaction + Recommendation (para el breakdown del dashboard).
+            # Se encolan para flush por lote: los ids se asignan al hacer flush una
+            # vez por BATCH (evita un round-trip a Postgres por cada aceptada).
             if fields["result"] == "accepted":
                 rec = models.Recommendation(
                     client_id=cid, offer_id=fields["offer_id"],
                     probability=0.6, score=0.6, created_at=fields["created_at"],
                 )
                 db.add(rec)
-                db.flush()
-                db.add(models.Interaction(
-                    client_id=cid, recommendation_id=rec.id, channel=fields["channel"],
-                    result="accepted", created_at=fields["created_at"],
-                ))
+                pending_accept.append((rec, fields))
                 stats["interactions"] += 1
             elif fields["result"] == "rejected":
                 db.add(models.Interaction(
@@ -459,9 +472,26 @@ def load_offerings(db, path: Path = None) -> dict:
                 stats["interactions"] += 1
 
             if count % BATCH == 0:
+                if pending_accept:
+                    db.flush()  # asigna rec.id a todas las aceptadas del lote
+                    for rec, flds in pending_accept:
+                        db.add(models.Interaction(
+                            client_id=flds["client_id"], recommendation_id=rec.id,
+                            channel=flds["channel"], result="accepted",
+                            created_at=flds["created_at"],
+                        ))
+                    pending_accept = []
                 db.commit()
                 print(f"[csv_loader] Ofrecimientos: {count}")
 
+    if pending_accept:
+        db.flush()
+        for rec, flds in pending_accept:
+            db.add(models.Interaction(
+                client_id=flds["client_id"], recommendation_id=rec.id,
+                channel=flds["channel"], result="accepted",
+                created_at=flds["created_at"],
+            ))
     db.commit()
     stats["offerings"] = count
 
@@ -482,18 +512,17 @@ def load_offerings(db, path: Path = None) -> dict:
     db.commit()
 
     # --- Actualizar el profile de los clientes reales (historial real). ---
-    ids = set(historial_campanias) | set(historial_ofertas)
-    for cid in sorted(ids):
-        client = db.query(models.Client).filter(models.Client.id == cid).first()
-        if not client:
-            continue
-        profile = copy.deepcopy(client.profile or {})
-        profile["historial_campanias"] = historial_campanias.get(cid, [])[:HISTORIAL_MAX]
-        profile["historial_ofertas"] = historial_ofertas.get(cid, [])[:HISTORIAL_MAX]
-        client.profile = profile
-        stats["profiles"] += 1
-        if stats["profiles"] % BATCH == 0:
-            db.commit()
+    ids = sorted(set(historial_campanias) | set(historial_ofertas))
+    CHUNK = 1000
+    for i in range(0, len(ids), CHUNK):
+        chunk = ids[i:i + CHUNK]
+        for client in db.query(models.Client).filter(models.Client.id.in_(chunk)).all():
+            profile = copy.deepcopy(client.profile or {})
+            profile["historial_campanias"] = historial_campanias.get(client.id, [])[:HISTORIAL_MAX]
+            profile["historial_ofertas"] = historial_ofertas.get(client.id, [])[:HISTORIAL_MAX]
+            client.profile = profile
+            stats["profiles"] += 1
+        db.commit()
     db.commit()
 
     print(

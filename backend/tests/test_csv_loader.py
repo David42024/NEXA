@@ -71,6 +71,7 @@ def test_load_offerings_crea_e2e_interacciones_y_funnel(tmp_path, session):
     assert ofr.result == "rejected"
     assert ofr.rejection_reason == "Competencia"  # ya_tiene_similar -> Competencia
     assert ofr.channel == "Llamada"  # Call_In
+    assert ofr.evidence_ref == "OFR_0000001"  # id externo para reanudar carga
 
     ofr3 = session.query(models.Offering).filter(models.Offering.client_id == "CLI_000003").first()
     assert ofr3.result == "accepted"

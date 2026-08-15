@@ -18,6 +18,30 @@ from app.services.config_service import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
+def _count_elegibles_mt(db) -> int:
+    """Cuenta clientes elegibles a Movistar Total sin cargar todo a memoria.
+
+    Con 100k+ clientes un `.all()` con los perfiles JSON revienta la RAM de
+    instancias pequeñas (Render 512MB). Se barre por lotes trayendo solo la
+    columna `profile` (portable SQLite/Postgres).
+    """
+    count = 0
+    last_id = None
+    BATCH = 2000
+    while True:
+        q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
+        if last_id:
+            q = q.filter(models.Client.id > last_id)
+        rows = q.limit(BATCH).all()
+        if not rows:
+            break
+        for _, profile in rows:
+            if (profile or {}).get("elegibilidad", {}).get("movistar_total"):
+                count += 1
+        last_id = rows[-1][0]
+    return count
+
+
 @router.get("/permissions")
 def get_permissions(db: Session = Depends(get_db), _user=Depends(require_permission("manage_roles"))):
     rows = db.query(models.Permission).all()
@@ -190,9 +214,7 @@ def get_kpis(db: Session = Depends(get_db), _user=Depends(require_permission("vi
     from datetime import date, timedelta
 
     total_clients = db.query(func.count(models.Client.id)).scalar() or 0
-    elegibles_mt = sum(
-        1 for c in db.query(models.Client).all() if c.profile.get("elegibilidad", {}).get("movistar_total")
-    )
+    elegibles_mt = _count_elegibles_mt(db)
 
     accepted = db.query(func.count(models.Interaction.id)).filter(models.Interaction.result == "accepted").scalar() or 0
     total_interactions = db.query(func.count(models.Interaction.id)).scalar() or 0

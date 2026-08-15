@@ -170,27 +170,53 @@ def list_clients(
     de mayor probabilidad aparece primero. Con `solo_ahora=true` se limita a los
     clientes cuya mejor hora de contacto incluye el momento actual.
     """
-    clients = db.query(models.Client).order_by(models.Client.id).all()
-    scored = []
-    for c in clients:
-        score, top_offer, motivo = _nbo_top(c)
-        mejor_hora = _mejor_hora(c.profile)
-        scored.append(schemas.ClientSummary(
-            id=c.id,
-            name=c.name,
-            district=c.district,
-            elegible=_is_elegible(c.profile),
-            score=score,
-            top_offer=top_offer,
-            motivo=motivo,
-            plan_actual=_plan_actual(c.profile),
-            mejor_hora=mejor_hora,
-            llamable_ahora=_llamable_ahora(mejor_hora),
-        ))
-    scored.sort(key=lambda s: s.score, reverse=True)
-    if solo_ahora:
-        scored = [s for s in scored if s.llamable_ahora]
-    total = len(scored)
+    total = db.query(models.Client).count()
+    # Barrido acotado en memoria: con 100k+ clientes NO se carga todo a RAM.
+    # Se mantiene un heap con los mejores por score y se conserva solo lo necesario.
+    import heapq
+
+    keep = page_size * page
+    heap: list = []  # (-score, idx, ClientSummary); idx evita comparar objetos
+    match_total = 0  # conteo real (para el total cuando hay filtro solo_ahora)
+
+    idx = 0
+    last_id = None
+    while True:
+        q = db.query(models.Client).order_by(models.Client.id)
+        if last_id:
+            q = q.filter(models.Client.id > last_id)
+        batch = q.limit(2000).all()
+        if not batch:
+            break
+        for c in batch:
+            idx += 1
+            mejor_hora = _mejor_hora(c.profile)
+            llamable = _llamable_ahora(mejor_hora)
+            if solo_ahora and not llamable:
+                continue
+            match_total += 1
+            score, top_offer, motivo = _nbo_top(c)
+            item = schemas.ClientSummary(
+                id=c.id,
+                name=c.name,
+                district=c.district,
+                elegible=_is_elegible(c.profile),
+                score=score,
+                top_offer=top_offer,
+                motivo=motivo,
+                plan_actual=_plan_actual(c.profile),
+                mejor_hora=mejor_hora,
+                llamable_ahora=llamable,
+            )
+            entry = (-score, idx, item)
+            if len(heap) < keep:
+                heapq.heappush(heap, entry)
+            elif entry < heap[0]:
+                heapq.heapreplace(heap, entry)
+        last_id = batch[-1].id
+
+    scored = [e[2] for e in sorted(heap, key=lambda e: (-e[0], e[1]))]
+    total = match_total if solo_ahora else total
     start = (page - 1) * page_size
     items = scored[start:start + page_size]
     return schemas.ClientListResponse(total=total, page=page, page_size=page_size, results=items)
