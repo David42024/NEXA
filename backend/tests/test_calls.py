@@ -184,6 +184,35 @@ def test_ws_bot_abre_la_llamada(client, monkeypatch):
             assert copilot["suggestion"]
 
 
+def test_ws_bot_rebate_siempre_aun_sin_ia(client, monkeypatch):
+    """El bot SIEMPRE rebate la objecion: si la IA devuelve vacio, usa la plantilla."""
+    async def fake_reply(ctx, message):
+        return {"reply": "", "source": "local"}
+    monkeypatch.setattr("app.services.call_provider.chat_engine.generate_nexabot_reply", fake_reply)
+
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            _recv_until(asesor_ws, "status")  # active
+            _recv_until(cliente_ws, "bot_speech")  # apertura del bot
+
+            cliente_ws.send_json({"type": "stt", "text": "no estoy interesada", "final": True})
+            speech = _recv_until(cliente_ws, "bot_speech")
+            assert speech["kind"] == "response"
+            assert speech["text"], "El bot nunca debe quedarse callado ante un 'no'"
+            assert "ahorra" in speech["text"].lower() or "ahorrar" in speech["text"].lower()
+
+            # El asesor ve la objecion clasificada en su panel.
+            copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("objection") is not None)
+            assert copilot["objection"]["type"] == "no_necesita"
+            assert copilot["suggestion"]
+
+
 def test_ws_stt_dispara_copilot(client, monkeypatch):
     """La transcripcion del cliente llega al asesor y genera la objecion + sugerencia."""
     captured = {}

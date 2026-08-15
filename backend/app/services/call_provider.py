@@ -42,7 +42,7 @@ OBJECION_LABELS = {
 OBJECION_RULES = [
     ("precio", ["caro", "precio", "cuesta", "cost", "no me alcanza", "presupuesto", "mucho dinero", "mas caro"]),
     ("competencia", ["otro operador", "claro", "entel", "bitel", "otra empresa", "mi compania", "mi compañia", "ya tengo con"]),
-    ("no_necesita", ["no necesito", "no me interesa", "no quiero", "no me sirve", "no gracias", "ya tengo"]),
+    ("no_necesita", ["no necesito", "no me interesa", "no me interesan", "no quiero", "no me sirve", "no gracias", "ya tengo", "no estoy interesad"]),
     ("reclamo", ["reclamo", "queja", "problema", "mal servicio", "lento", "no funciona", "senal", "señal"]),
     ("dudas", ["pensar", "lo pienso", "mas adelante", "despues", "luego", "aun no"]),
 ]
@@ -97,6 +97,63 @@ def _default_opening(ctx: Dict) -> str:
         f"Hola {nombre}, soy el asistente de Movistar. ¿Tienes un minuto para revisar "
         "cómo ahorrar en tu plan de hoy?"
     )
+
+
+def _rebate_template(ctx: Dict, text: str, objection) -> str:
+    """Rebate determinista orientado a VENDER. Se usa SIEMPRE que la IA falle o
+    este en cooldown, para que el bot nunca se quede callado ante un 'no'."""
+    nombre = ctx.get("nombre") or "cliente"
+    oferta = ctx.get("oferta")
+    monto = ctx.get("monto_facturado")
+    precio = ctx.get("precio")
+    ahorro_pct = ctx.get("ahorro_pct")
+    ahorro = (monto * ahorro_pct) if monto and ahorro_pct is not None else None
+
+    def con_oferta() -> str:
+        if oferta and precio is not None and ahorro is not None:
+            return (
+                f"Entiendo, {nombre}. Hoy pagas S/ {monto:.2f} y con {oferta} pasarías "
+                f"a S/ {precio:.2f}: S/ {ahorro:.2f} de ahorro cada mes, en un solo recibo "
+                "con móvil, fibra y TV, sin cambiar de número. ¿Quieres que te muestre "
+                "cuánto ahorrarías exactamente en tu caso?"
+            )
+        return (
+            f"Lo entiendo, {nombre}, y no te quito más de un minuto. Esta opción te "
+            "ahorra en el recibo y une tus servicios en uno solo. ¿Me dejas contarte "
+            "el beneficio exacto para tu plan?"
+        )
+
+    t = (text or "").lower()
+    obj_type = (objection or {}).get("type", "")
+    if obj_type in ("precio", "no_necesita") or any(
+        w in t for w in ("caro", "precio", "cost", "no interesa", "no necesito", "no quiero", "no gracias")
+    ):
+        return con_oferta()
+    if obj_type == "competencia" or any(w in t for w in ("claro", "entel", "bitel", "otro operador", "otra empresa")):
+        ahorro_txt = f"S/ {ahorro:.2f} menos al mes" if ahorro is not None else "un mejor precio"
+        return (
+            f"Te entiendo, {nombre}. La ventaja es que te quedas con Movistar: mismo "
+            f"número y sin portabilidad, pero con {ahorro_txt} en el recibo. "
+            "¿Qué te ofrecen ellos, para compararte con números reales?"
+        )
+    if obj_type == "reclamo" or any(w in t for w in ("reclamo", "queja", "problema", "mal servicio")):
+        return (
+            f"Lamento el inconveniente, {nombre}. Justamente este plan es una forma de "
+            "compensarte por tu permanencia: un recibo único y más barato. ¿Quieres que "
+            "revise tu caso y te confirme cuánto bajaría tu factura?"
+        )
+    if obj_type == "dudas" or any(w in t for w in ("pensar", "después", "luego", "más adelante", "no se")):
+        dato = (
+            f"bajarías de S/ {monto:.2f} a S/ {precio:.2f} ({ahorro:.2f} soles menos al mes)"
+            if ahorro is not None and precio is not None
+            else "tu factura bajaría"
+        )
+        return (
+            f"Claro, {nombre}, sin presión. Solo te dejo el dato: {dato} con este plan. "
+            "¿Prefieres que te lo detalle ahora o te dejo la información para que lo "
+            "revises con calma?"
+        )
+    return con_oferta()
 
 
 class CallSession:
@@ -269,12 +326,11 @@ class P2PWebRTCProvider:
         })
 
     async def _run_copilot(self, sess, text, speaker="cliente", db=None):
-        now = time.time()
-        if now - sess.last_ai_at.get(speaker, 0) < settings.CALL_AI_COOLDOWN_SECONDS:
-            return
-        sess.last_ai_at[speaker] = now
-
         if speaker == "asesor":
+            now = time.time()
+            if now - sess.last_ai_at.get(speaker, 0) < settings.CALL_AI_COOLDOWN_SECONDS:
+                return
+            sess.last_ai_at[speaker] = now
             # El copilot tambien escucha al asesor: revisa si aplico bien el
             # argumento/pitch y sugiere como mejorar la respuesta.
             prompt = (
@@ -299,19 +355,8 @@ class P2PWebRTCProvider:
             })
             return
 
-        # Voz del cliente: deteccion de objecion + sugerencia para el asesor.
+        # Voz del cliente: deteccion de objecion.
         objection = classify_objection(text)
-        if sess.mode == "bot":
-            await self._send(sess.cliente_ws, {"type": "bot_thinking"})
-        prompt = (
-            f"El cliente acaba de decir: \"{text}\". Detecta su objecion y redacta una "
-            "sugerencia accionable (max 4 frases) para el asesor. Si el asesor va a "
-            "responder, escribe el speech entre comillas."
-        )
-        try:
-            result = await chat_engine.generate_nexabot_reply(sess.ctx, prompt)
-        except Exception:
-            result = {"reply": "", "source": "local"}
 
         # E2E en tiempo real: objecion detectada -> etapa "objection".
         offering = None
@@ -321,12 +366,56 @@ class P2PWebRTCProvider:
                 if offering and offering.stage not in ("result",):
                     offering.stage = "objection"
                     offering.objection_status = "rebate"
-                    offering.speech_rebate = result["reply"][:500] or offering.speech_rebate
                     db.commit()
                     db.refresh(offering)
                 offering = _offering_out(offering)
             except Exception:
                 offering = None
+
+        # Modo bot: el agente de voz SIEMPRE rebate la objecion (objetivo: vender).
+        # No depende de la IA: si falla o esta en cooldown, usa la plantilla.
+        if sess.mode == "bot":
+            await self._send(sess.cliente_ws, {"type": "bot_thinking"})
+            speech = await self._bot_rebate(sess, text, objection)
+            if db is not None and objection is not None:
+                try:
+                    offering_row = db.query(models.Offering).filter(models.Offering.id == sess.offering_id).first()
+                    if offering_row:
+                        offering_row.speech_rebate = speech[:500] or offering_row.speech_rebate
+                        db.commit()
+                except Exception:
+                    pass
+            await self._send(sess.cliente_ws, {
+                "type": "bot_speech",
+                "text": speech,
+                "source": "local",
+                "kind": "response",
+            })
+            await self._send(sess.asesor_ws, {
+                "type": "copilot",
+                "speaker": "bot",
+                "objection": objection,
+                "quote": text,
+                "suggestion": speech,
+                "source": "local",
+                "offering": offering,
+            })
+            return
+
+        # Modo asesor: sugerencia accionable para el asesor (el asesor habla).
+        now = time.time()
+        if now - sess.last_ai_at.get("cliente", 0) < settings.CALL_AI_COOLDOWN_SECONDS:
+            return
+        sess.last_ai_at["cliente"] = now
+        prompt = (
+            f"El cliente acaba de decir: \"{text}\". Detecta su objecion y redacta una "
+            "sugerencia accionable (max 4 frases) para el asesor. Si el asesor va a "
+            "responder, escribe el speech entre comillas."
+        )
+        try:
+            result = await chat_engine.generate_nexabot_reply(sess.ctx, prompt)
+        except Exception:
+            result = {"reply": "", "source": "local"}
 
         await self._send(sess.asesor_ws, {
             "type": "copilot",
@@ -338,15 +427,32 @@ class P2PWebRTCProvider:
             "offering": offering,
         })
 
-        # El bot responde la objecion hablada al cliente SOLO en modo bot (agente de voz).
-        speech = _clean_speech(result["reply"])
-        if speech and sess.mode == "bot":
-            await self._send(sess.cliente_ws, {
-                "type": "bot_speech",
-                "text": speech,
-                "source": result["source"],
-                "kind": "response",
-            })
+    async def _bot_rebate(self, sess, text, objection):
+        """Rebate del bot al cliente: IA si puede, plantilla si no. Nunca vacio."""
+        now = time.time()
+        if now - sess.last_ai_at.get("cliente", 0) >= settings.CALL_AI_COOLDOWN_SECONDS:
+            sess.last_ai_at["cliente"] = now
+            nombre = sess.ctx.get("nombre") or "cliente"
+            label = (objection or {}).get("label", "duda")
+            prompt = (
+                f"Eres Nexabot, agente de voz de Movistar, en llamada con {nombre}. "
+                f"El cliente acaba de decir: \"{text}\" (objecion: {label}). Rebatela en "
+                "maximo 3 frases habladas, directo al cliente y con objetivo de vender: "
+                "enfocate en el ahorro o beneficio exacto (usa los datos del contexto), "
+                "sin presionar, y termina con una pregunta corta que invite a seguir. "
+                "Habla como persona, sin comillas ni viñetas."
+            )
+            try:
+                # Rebote rapido: si la IA tarda, se responde con la plantilla.
+                result = await asyncio.wait_for(
+                    chat_engine.generate_nexabot_reply(sess.ctx, prompt), timeout=2.5
+                )
+                speech = _clean_speech(result["reply"])
+                if speech:
+                    return speech
+            except Exception:
+                pass
+        return _rebate_template(sess.ctx, text, objection)
 
     async def end(self, sess, reason="ended", db=None):
         if sess.state == "ended":
