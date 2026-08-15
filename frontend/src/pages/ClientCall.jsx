@@ -7,6 +7,10 @@ import {
   Mic,
   MicOff,
   MessageSquareText,
+  Lock,
+  ShieldCheck,
+  Headphones,
+  Sparkles,
 } from 'lucide-react'
 import { useClienteCall, fmtDuration } from '../hooks/useCall'
 
@@ -16,10 +20,12 @@ export default function ClientCall() {
   const token = searchParams.get('token')
   const nombre = searchParams.get('nombre') || 'Cliente NEXA'
   const audioRef = useRef(null)
+  const botAudioRef = useRef(null)
 
   const call = useClienteCall({
     callId,
     clientToken: token || '',
+    botAudioRef,
     onRemoteStream: (stream) => {
       if (audioRef.current) {
         audioRef.current.srcObject = stream
@@ -35,6 +41,8 @@ export default function ClientCall() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-navy-950 via-navy-900 to-navy-950 px-4 text-slate-200">
       {/* Audio remoto del asesor (silencioso: el propio navegador lo mezcla) */}
       <audio ref={audioRef} autoPlay className="hidden" />
+      {/* Audio de la voz del bot: se reproduce y se enruta al asesor via WebRTC */}
+      <audio ref={botAudioRef} className="hidden" />
 
       <div className="mb-8 flex items-center gap-2">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-300">
@@ -166,6 +174,53 @@ export default function ClientCall() {
               Vuelve a la pestaña del asesor para ver las objeciones detectadas y cerrar la venta.
             </p>
           </>
+        )}
+      </div>
+
+      {/* Confianza y valor: alientan a permanecer y comprar */}
+      <div className="mt-6 w-full max-w-sm">
+        <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+            <ShieldCheck className="h-4 w-4 text-emerald-400" />
+            <p className="text-center text-[10px] leading-tight text-slate-300">
+              Asistente oficial
+              <br />
+              Movistar
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+            <Lock className="h-4 w-4 text-cyan-300" />
+            <p className="text-center text-[10px] leading-tight text-slate-300">
+              Llamada cifrada
+              <br />
+              extremo a extremo
+            </p>
+          </div>
+          <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
+            <Headphones className="h-4 w-4 text-amber-300" />
+            <p className="text-center text-[10px] leading-tight text-slate-300">
+              Atención 24/7
+              <br />
+              sin costo
+            </p>
+          </div>
+        </div>
+
+        {call.phase === 'incoming' && (
+          <p className="mt-3 text-center text-[11px] text-slate-500">
+            Esta llamada puede ser grabada para mejorar la atención. En ella recibirás tu oferta
+            personalizada.
+          </p>
+        )}
+
+        {call.phase === 'active' && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2.5">
+            <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
+            <p className="text-[11px] leading-snug text-cyan-100">
+              Tienes una <strong className="text-white">oferta exclusiva</strong> esperándote. Confírmala
+              al final de la llamada y empieza a ahorrar desde hoy.
+            </p>
+          </div>
         )}
       </div>
 

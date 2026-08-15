@@ -325,7 +325,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
  * Lado del "cliente": pantalla pública /llamada/:callId. Responde, reproduce el
  * audio remoto y transcribe su voz (Web Speech API) hacia el copilot del asesor.
  */
-export function useClienteCall({ callId, clientToken, onRemoteStream }) {
+export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRef }) {
   const [phase, setPhase] = useState('incoming') // incoming | connecting | active | ended
   const [error, setError] = useState(null)
   const [muted, setMuted] = useState(false)
@@ -344,20 +344,37 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   const utteranceRef = useRef(null)
   const phaseRef = useRef('incoming')
   const endedRef = useRef(false)
+  const swappedRef = useRef(false)
+  const micTrackRef = useRef(null)
+  const audioCtxRef = useRef(null)
 
   function setPhaseAll(value) {
     phaseRef.current = value
     setPhase(value)
   }
 
+  // Vuelve a poner el micro del cliente en el canal WebRTC (la pista de audio
+  // del bot fue intercambiada mientras hablaba, para que el asesor la escuche).
+  function restoreMic() {
+    if (!swappedRef.current) return
+    swappedRef.current = false
+    const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === 'audio')
+    const mic = micTrackRef.current || streamRef.current?.getAudioTracks()[0]
+    if (sender && mic) sender.replaceTrack(mic).catch(() => {})
+    if (botAudioRef?.current) botAudioRef.current.src = ''
+  }
+
   const cleanup = useCallback(() => {
     stopTimer()
     stopStream()
     stopSTT()
+    restoreMic()
     if (utteranceRef.current) {
       window.speechSynthesis?.cancel()
       utteranceRef.current = null
     }
+    audioCtxRef.current?.close().catch(() => {})
+    audioCtxRef.current = null
     pcRef.current?.close()
     pcRef.current = null
   }, [stopTimer, stopStream])
@@ -396,28 +413,61 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
   }
 
   function speakBot(text) {
-    if (!window.speechSynthesis || !text) return
-    if (utteranceRef.current) window.speechSynthesis.cancel()
+    if (!text) return
+    if (utteranceRef.current) window.speechSynthesis?.cancel()
     pauseSTT()
     setThinking(false)
-    const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'es-PE'
-    u.rate = 1.0
-    u.volume = 1
+    setBotSpeaking(true)
     const done = () => {
       utteranceRef.current = null
       setBotSpeaking(false)
-      // Pequeña pausa para que el eco del TTS se asiente, luego espera al cliente.
+      restoreMic()
+      // Pequeña pausa para que el eco del audio se asiente, luego espera al cliente.
       setTimeout(() => restartSTT(), 400)
     }
-    u.onend = done
-    u.onerror = done
-    utteranceRef.current = u
-    setBotSpeaking(true)
-    // resume() evita el bug de Chrome donde el TTS se queda mudo tras cancel().
-    window.speechSynthesis.cancel()
-    window.speechSynthesis.resume()
-    window.speechSynthesis.speak(u)
+    const synthFallback = () => {
+      // Sin audio servido (TTS caido): habla por speechSynthesis (no entra en la
+      // grabacion del asesor, pero la conversacion sigue funcionando).
+      if (!window.speechSynthesis) { done(); return }
+      const u = new SpeechSynthesisUtterance(text)
+      u.lang = 'es-PE'
+      u.rate = 1.0
+      u.volume = 1
+      u.onend = done
+      u.onerror = done
+      utteranceRef.current = u
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.resume()
+      window.speechSynthesis.speak(u)
+    }
+    const el = botAudioRef?.current
+    // Ruta preferida: el audio del bot via <audio> -> captureStream -> replaceTrack,
+    // asi el asesor lo oye por WebRTC y la grabacion de la llamada lo capta.
+    if (el && typeof el.captureStream === 'function') {
+      try {
+        el.onended = done
+        el.crossOrigin = 'anonymous'
+        el.src = `${import.meta.env.VITE_API_URL || ''}/api/tts?text=${encodeURIComponent(text)}`
+        const stream = el.captureStream()
+        const botTrack = stream.getAudioTracks()[0]
+        if (!botTrack) { synthFallback(); return }
+        const sender = pcRef.current?.getSenders().find((s) => s.track?.kind === 'audio')
+        if (!sender) { synthFallback(); return }
+        const mic = streamRef.current?.getAudioTracks()[0]
+        micTrackRef.current = mic || null
+        el.onplaying = () => {
+          sender.replaceTrack(botTrack).catch(() => {})
+          swappedRef.current = true
+        }
+        el.onerror = () => { try { sender.replaceTrack(mic).catch(() => {}) } catch {} ; swappedRef.current = false; synthFallback() }
+        el.play()
+          .catch(() => { synthFallback() })
+        return
+      } catch {
+        /* falla al capturar -> speechSynthesis */
+      }
+    }
+    synthFallback()
   }
 
   async function answer() {
@@ -434,6 +484,14 @@ export function useClienteCall({ callId, clientToken, onRemoteStream }) {
       setPhaseAll('incoming')
       return
     }
+
+    // Desbloquea el autoplay del navegador dentro del gesto de "Contestar",
+    // para que la voz del bot (<audio>) pueda reproducirse sin interaccion extra.
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)()
+      ctx.resume()
+      audioCtxRef.current = ctx
+    } catch { /* audio ya disponible */ }
 
     const ws = new WebSocket(wsUrl(`/api/calls/ws/${callId}?role=cliente&token=${clientToken}`))
     wsRef.current = ws
