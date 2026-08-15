@@ -56,7 +56,9 @@ export default function ClientCall() {
             <p className="text-xs font-medium uppercase tracking-widest text-slate-400">
               Llamada entrante
             </p>
-            <h1 className="mt-3 font-display text-2xl font-bold text-white">{firstName}</h1>
+            <h1 className="mt-3 font-display text-2xl font-bold text-white">
+              Llamada entrante para “{firstName}”
+            </h1>
             <p className="mt-1 text-xs text-slate-400">Asesor de Movistar te está llamando</p>
 
             <div className="mt-8 flex items-center justify-center gap-4">
