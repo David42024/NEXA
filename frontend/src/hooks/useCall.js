@@ -36,8 +36,11 @@ async function createPeer(stream, onCandidate) {
  * El copilot del backend escucha al cliente (objeciones) y al asesor (pitch).
  * Devuelve la instancia para poder detenerla; null si el navegador no soporta STT
  * (p.ej. iOS/Safari), donde la llamada funciona igual sin transcripcion.
+ *
+ * La instancia NO se reutiliza tras stop(): en Chrome re-start() la misma
+ * instancia la deja muda silenciosamente. Cada reinicio crea una nueva.
  */
-function createSTT(ws, speaker, isActive, isPaused) {
+function createSTT({ ws, speaker, isActive, isPaused, isCurrent, onAutoRestart }) {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition
   if (!SR) return null
   const rec = new SR()
@@ -49,6 +52,7 @@ function createSTT(ws, speaker, isActive, isPaused) {
   // cuando hay un resultado final o tras una pausa fuerte de voz (~1.6s).
   let flushedUntil = 0
   let lastSent = ''
+  let lastInterim = ''
   let pauseTimer = null
 
   const send = (text) => {
@@ -73,20 +77,23 @@ function createSTT(ws, speaker, isActive, isPaused) {
       return
     }
     // Sin final todavia: acumula lo provisional y espera la pausa para mandarlo.
-    const interim = e.results[e.results.length - 1][0].transcript.trim()
-    if (interim && interim !== lastSent) {
+    lastInterim = e.results[e.results.length - 1][0].transcript.trim()
+    if (lastInterim && lastInterim !== lastSent) {
       clearTimeout(pauseTimer)
-      pauseTimer = setTimeout(() => send(interim), 1600)
+      pauseTimer = setTimeout(() => send(lastInterim), 1600)
     }
   }
   rec.onerror = () => {}
   rec.onend = () => {
     clearTimeout(pauseTimer)
-    // Reutiliza la MISMA instancia; crear una nueva tras cada pausa deja el
-    // reconocimiento mudo en Chrome (InvalidStateError). Solo reinicia si la
-    // llamada sigue activa y no estamos en pausa (mientras habla el bot).
-    if (isActive() && !isPaused()) {
-      try { rec.start() } catch { /* transcribiendo */ }
+    // Si Chrome cerro el reconocimiento antes del timer de pausa (fin de voz),
+    // envia lo acumulado para que el bot responda igualmente.
+    if (lastInterim && lastInterim !== lastSent) send(lastInterim)
+    lastInterim = ''
+    if (isCurrent() && isActive() && !isPaused() && onAutoRestart) {
+      setTimeout(() => {
+        if (isCurrent() && isActive() && !isPaused()) onAutoRestart()
+      }, 300)
     }
   }
   try { rec.start() } catch { /* transcribiendo */ }
@@ -495,7 +502,11 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
 
   useEffect(() => () => { wsRef.current?.close(); cleanup() }, [cleanup])
 
+  const sttGenRef = useRef(0)
+  const sttLastStartRef = useRef(0)
+
   function stopSTT() {
+    sttGenRef.current += 1 // invalida onend/timers pendientes de la instancia vieja
     if (recRef.current) {
       recRef.current.onresult = null
       recRef.current.onend = null
@@ -506,9 +517,27 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
   }
 
   function startSTT(ws) {
-    if (recRef.current) return
+    // Crea SIEMPRE una instancia nueva: reusar la misma tras stop() deja el
+    // reconocimiento mudo en Chrome y el bot deja de escuchar al cliente.
+    if (recRef.current) {
+      try { recRef.current.onresult = null; recRef.current.onend = null; recRef.current.abort() } catch { /* ya detenida */ }
+      recRef.current = null
+    }
+    sttGenRef.current += 1
     pausedRef.current = false
-    recRef.current = createSTT(ws, 'cliente', () => phaseRef.current === 'active', () => pausedRef.current)
+    sttLastStartRef.current = Date.now()
+    const gen = sttGenRef.current
+    recRef.current = createSTT({
+      ws,
+      speaker: 'cliente',
+      isActive: () => phaseRef.current === 'active',
+      isPaused: () => pausedRef.current,
+      isCurrent: () => gen === sttGenRef.current,
+      // Evita un bucle si Chrome rechaza el reinicio inmediato.
+      onAutoRestart: () => {
+        if (Date.now() - sttLastStartRef.current > 1500) startSTT(ws)
+      },
+    })
   }
 
   // Pausa la transcripcion mientras el bot habla (evita que se escuche a si mismo).
@@ -520,10 +549,8 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
   function restartSTT() {
     pausedRef.current = false
     if (phaseRef.current !== 'active') return
-    if (!recRef.current) { startSTT(wsRef.current); return }
-    // Reanuda la MISMA instancia: crear una nueva tras cada pausa deja el
-    // reconocimiento mudo en Chrome y el bot ya no escucharía al cliente.
-    try { recRef.current.start() } catch { /* ya transcribiendo */ }
+    // Instancia nueva SIEMPRE: re-start() la misma tras stop() deja Chrome mudo.
+    startSTT(wsRef.current)
   }
 
   function speakBot(text) {
