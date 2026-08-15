@@ -12,8 +12,8 @@ from app.services.nbo_engine import get_recommendations_for_client
 
 router = APIRouter(prefix="/api/clients", tags=["clients"])
 
-# IDs de cliente NEXA con formato como "C00001" (letra + 4+ digitos)
-ID_PATTERN = re.compile(r"^[A-Za-z]\d{4,}$")
+# IDs de cliente NEXA con formato como "C00001" (letra + 4+ digitos) o "CLI_000001"
+ID_PATTERN = re.compile(r"^[A-Za-z]{1,5}_?\d{4,}$")
 
 # Hora local de Perú (sin horario de verano). Si no está disponible, usa la del servidor.
 try:

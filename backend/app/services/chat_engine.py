@@ -37,14 +37,23 @@ def build_context(client: Dict) -> Dict:
     dias_mora = fact.get("dias_mora_prom") or 0
     canal = comp.get("canal_mas_usado") or comp.get("canal_principal")
     franja = consumo.get("mejor_franja_horaria_contacto") or consumo.get("horario_pico")
+    hogar = p.get("hogar") or {}
 
     return {
         "nombre": (client.get("name") or "cliente").split()[0],
         "plan": servicio.get("plan") or "Postpago",
+        "tipo_cliente": servicio.get("tipo"),
+        "edad_rango": servicio.get("edad_rango"),
+        "departamento": p.get("ubicacion_departamento") or p.get("distrito"),
         "antiguedad_meses": servicio.get("antiguedad_meses"),
         "datos_gb": consumo.get("datos_gb"),
         "dias_agotamiento": dias_datos,
+        "voz_minutos": consumo.get("voz_minutos"),
+        "sms": consumo.get("sms"),
+        "app_uso": consumo.get("app_uso"),
         "monto_facturado": monto,
+        "metodo_pago": fact.get("metodo_pago_frecuente"),
+        "tiene_internet": hogar.get("tiene_internet"),
         "n_reclamos": n_reclamos,
         "dias_mora": dias_mora,
         "canal": canal,
@@ -90,6 +99,28 @@ def _context_text(ctx: Dict) -> str:
         f"Friccion: {_fmt(ctx['n_reclamos'], ' reclamos')} y {_fmt(ctx['dias_mora'], ' dias de mora')}.",
         f"Mejor contacto: canal {_fmt(ctx['canal'])} en franja {_fmt(ctx['franja'])}.",
     ]
+    if ctx.get("tipo_cliente") or ctx.get("edad_rango"):
+        perfil = "Perfil"
+        if ctx.get("tipo_cliente"):
+            perfil += f" {ctx['tipo_cliente']}"
+        if ctx.get("edad_rango"):
+            perfil += f", edad {ctx['edad_rango']}"
+        if ctx.get("departamento"):
+            perfil += f", ubicado en {ctx['departamento']}"
+        if ctx.get("metodo_pago"):
+            perfil += f", paga con {ctx['metodo_pago']}"
+        lines.append(perfil + ".")
+    if ctx.get("voz_minutos") or ctx.get("sms") is not None or ctx.get("app_uso"):
+        uso = "Uso adicional"
+        if ctx.get("voz_minutos"):
+            uso += f" {ctx['voz_minutos']} min de voz"
+        if ctx.get("sms") is not None:
+            uso += f", {ctx['sms']} SMS"
+        if ctx.get("app_uso"):
+            uso += f", uso de app {ctx['app_uso']}"
+        lines.append(uso + ".")
+    if ctx.get("tiene_internet") is not None:
+        lines.append(f"Hogar: {'con internet fijo' if ctx['tiene_internet'] else 'sin internet en el hogar'}.")
     if ctx.get("oferta"):
         lines.append(
             f"Oferta recomendada: {ctx['oferta']} a {_fmt(ctx['precio'], ' soles')}/mes "

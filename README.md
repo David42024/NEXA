@@ -54,6 +54,11 @@ alembic upgrade head       # aplica las migraciones (crea/actualiza el esquema)
 
 python -c "from app.seed_data import seed; seed()"   # crea los datos sintéticos
 
+# OPCIONAL: acopla los CSV reales de backend/csvs (ofertas, ~100k clientes,
+# ~300k ofrecimientos) a la BD. Es idempotente: si OFE_001/CLI_000001 ya existen,
+# se omite. El agente (Nexabot y generador de speech) usa esos datos reales.
+python -c "from app.services.csv_loader import seed_csv; seed_csv()"
+
 uvicorn app.main:app --reload --port 8000
 ```
 

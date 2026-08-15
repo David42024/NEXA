@@ -42,14 +42,37 @@ def _build_prompt(payload: Dict, variant: str) -> str:
     tono = "consultivo, cercano, hace una pregunta abierta al final" if variant == "consultiva" \
         else "directo, va al grano, resalta el beneficio numerico y cierra con una pregunta corta"
     razones = "; ".join(_reason_text(r) for r in payload.get("razones", []))
+    contexto = payload.get("contexto_cliente") or {}
+    ctx_txt = _contexto_text(contexto)
     return (
         f"Eres un asistente que redacta speechs breves (max 3 frases) en español neutro "
         f"para asesores de Movistar. Cliente: {payload.get('cliente_nombre')}. "
         f"Oferta a ofrecer: {payload.get('oferta')} (probabilidad de aceptacion {payload.get('probabilidad')}%). "
         f"Razones: {razones}. Beneficio clave: {payload.get('beneficio', 'N/A')}. "
         f"Canal: {payload.get('canal', 'App')}. Tono: {tono}. "
+        f"{ctx_txt}"
         f"Responde SOLO con el texto del speech, sin comillas ni explicaciones."
     )
+
+
+def _contexto_text(contexto: Dict) -> str:
+    """Convierte el contexto real del cliente en frases para el prompt del speech."""
+    partes = []
+    if contexto.get("departamento"):
+        partes.append(f"el cliente vive en {contexto['departamento']}")
+    if contexto.get("edad_rango"):
+        partes.append(f"tiene {contexto['edad_rango']} anios")
+    if contexto.get("datos_gb"):
+        partes.append(f"consume {contexto['datos_gb']} GB de datos")
+    if contexto.get("voz_minutos"):
+        partes.append(f"{contexto['voz_minutos']} minutos de voz")
+    if contexto.get("metodo_pago"):
+        partes.append(f"paga con {contexto['metodo_pago']}")
+    if contexto.get("monto_facturado"):
+        partes.append(f"su factura promedio es de S/ {contexto['monto_facturado']}")
+    if not partes:
+        return ""
+    return "Datos reales del cliente para fundamentar el argumento: " + ", ".join(partes) + ". "
 
 
 async def _call_groq(prompt: str) -> str:

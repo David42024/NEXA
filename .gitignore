@@ -14,3 +14,8 @@ dist/
 
 # OS
 .DS_Store
+
+# Datos reales (CSV) usados por app/services/csv_loader.py — se cargan a la BD
+# con seed_csv(); no se versionan por tamaño (dataset_clientes: ~17MB,
+# historial_campanias: ~50MB).
+backend/csvs/

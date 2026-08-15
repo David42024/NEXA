@@ -13,7 +13,11 @@ services:
     pythonVersion: 3.12.3
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: alembic upgrade head && python -c "from app.seed_data import seed; seed()" && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # Opcional: si SEED_CSV_ON_START=1, acopla los CSV reales (backend/csvs) a la BD
+    # tras el seed. Idempotente y gated por env: por defecto NO se ejecuta para no
+    # alargar el arranque de cada deploy. Tambien puede correrse manualmente con:
+    #   python -c "from app.services.csv_loader import seed_csv; seed_csv()"
+    startCommand: alembic upgrade head && python -c "from app.seed_data import seed; seed()" && ( [ \"$SEED_CSV_ON_START\" = \"1\" ] && python -c \"from app.services.csv_loader import seed_csv; seed_csv()\" || true ) && uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeploy: true
     envVars:
@@ -32,4 +36,7 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: FALLBACK_API_KEY
+        sync: false
+      # 1 = acopla los CSV reales (100k clientes / 300k ofrecimientos) al arrancar.
+      - key: SEED_CSV_ON_START
         sync: false
