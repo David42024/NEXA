@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models
 from app.security import require_permission, decode_token, get_user_permissions
-from app.services import chat_engine
+from app.services import chat_engine, stt_engine
 from app.services.call_provider import provider
 from app.services.nbo_engine import OFFER_CATALOG
 
@@ -131,6 +131,21 @@ def download_recording(
         media_type="audio/webm",
         headers={"Content-Disposition": f'attachment; filename="llamada-{call_id}.webm"'},
     )
+
+
+@router.post("/{call_id}/stt-audio")
+async def transcribe_audio(call_id: str, token: str, file: UploadFile = File(...)):
+    """El cliente sube un clip de su voz y el servidor lo transcribe (Whisper).
+
+    Asi la llamada escucha al cliente desde CUALQUIER navegador (Safari,
+    Firefox, etc.), no solo donde esta disponible la Web Speech API de Chrome.
+    """
+    sess = provider.get_session(call_id)
+    if not sess or token != sess.cliente_token:
+        raise HTTPException(status_code=401, detail="Token de cliente invalido")
+    data = await file.read()
+    text = await stt_engine.transcribe_audio(data, file.filename or "audio.webm")
+    return {"text": text}
 
 
 @router.websocket("/ws/{call_id}")

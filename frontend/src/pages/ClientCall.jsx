@@ -35,7 +35,6 @@ export default function ClientCall() {
   })
 
   const firstName = nombre.split(' ')[0]
-  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-navy-950 via-navy-900 to-navy-950 px-4 text-slate-200">
@@ -111,12 +110,10 @@ export default function ClientCall() {
                 : `Hablando con ${firstName} (Asesor Movistar)`}
             </p>
 
-            {sttSupported && (
-              <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-cyan-300">
-                <MessageSquareText className="h-3.5 w-3.5" />
-                Transcripción en vivo: la IA del asesor escucha tus objeciones
-              </p>
-            )}
+            <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-cyan-300">
+              <MessageSquareText className="h-3.5 w-3.5" />
+              Transcripción en vivo: la IA del asesor escucha tus objeciones
+            </p>
 
             {call.thinking ? (
               <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-cyan-300">
@@ -132,13 +129,6 @@ export default function ClientCall() {
               <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-emerald-400">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
                 Escuchándote… respóndele al asistente
-              </p>
-            )}
-
-            {!sttSupported && (
-              <p className="mt-3 text-[11px] text-amber-300/80">
-                Tu navegador no soporta transcripción de voz: usa Chrome o Edge para
-                que el bot te escuche.
               </p>
             )}
 

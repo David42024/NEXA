@@ -157,13 +157,34 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     setPhase(value)
   }
 
+  const asesorSttGenRef = useRef(0)
+
   function stopSTT() {
+    asesorSttGenRef.current += 1
     if (recRef.current) {
       recRef.current.onresult = null
       recRef.current.onend = null
-      recRef.current.stop()
+      try { recRef.current.abort() } catch { /* ya detenida */ }
       recRef.current = null
     }
+  }
+
+  function startSTT() {
+    // Instancia nueva SIEMPRE: re-start() la misma tras onend deja Chrome mudo.
+    if (recRef.current) {
+      try { recRef.current.onresult = null; recRef.current.onend = null; recRef.current.abort() } catch { /* ya detenida */ }
+      recRef.current = null
+    }
+    asesorSttGenRef.current += 1
+    const gen = asesorSttGenRef.current
+    recRef.current = createSTT({
+      ws: wsRef.current,
+      speaker: 'asesor',
+      isActive: () => phaseRef.current === 'active',
+      isPaused: () => false,
+      isCurrent: () => gen === asesorSttGenRef.current,
+      onAutoRestart: () => startSTT(),
+    })
   }
 
   // Graba la llamada mezclando el micro local y el audio remoto del cliente.
@@ -326,11 +347,6 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     }
   }
 
-  function startSTT() {
-    if (recRef.current) return
-    recRef.current = createSTT(wsRef.current, 'asesor', () => phaseRef.current === 'active', () => false)
-  }
-
   function toggleMute() {
     streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = muted })
     setMuted(!muted)
@@ -389,11 +405,9 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
 
-  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
   const wsRef = useRef(null)
   const pcRef = useRef(null)
   const recRef = useRef(null)
-  const pausedRef = useRef(false)
   const utteranceRef = useRef(null)
   const phaseRef = useRef('incoming')
   const endedRef = useRef(false)
@@ -502,64 +516,133 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
 
   useEffect(() => () => { wsRef.current?.close(); cleanup() }, [cleanup])
 
-  const sttGenRef = useRef(0)
-  const sttLastStartRef = useRef(0)
+  const botSpeakingRef = useRef(false)
+  const sttVadRef = useRef(null) // deteccion de voz + captura de frases del cliente
+  const sttSentRef = useRef('')
 
-  function stopSTT() {
-    sttGenRef.current += 1 // invalida onend/timers pendientes de la instancia vieja
-    if (recRef.current) {
-      recRef.current.onresult = null
-      recRef.current.onend = null
-      try { recRef.current.stop() } catch { /* ya detenida */ }
-      recRef.current = null
-    }
-    pausedRef.current = false
+  // Sube el clip y manda la transcripcion al backend como si fuera STT del
+  // navegador; el copilot responde igual. Funciona en CUALQUIER navegador.
+  function sttUpload(blob) {
+    try {
+      const fd = new FormData()
+      fd.append('file', blob, 'audio.webm')
+      fetch(`${import.meta.env.VITE_API_URL || ''}/api/calls/${callId}/stt-audio?token=${clientToken}`, {
+        method: 'POST',
+        body: fd,
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          const t = (d.text || '').trim()
+          if (!t || t === sttSentRef.current) return
+          sttSentRef.current = t
+          wsRef.current?.send(JSON.stringify({ type: 'stt', speaker: 'cliente', text: t, final: true }))
+        })
+        .catch(() => {})
+    } catch { /* sin subida */ }
   }
 
-  function startSTT(ws) {
-    // Crea SIEMPRE una instancia nueva: reusar la misma tras stop() deja el
-    // reconocimiento mudo en Chrome y el bot deja de escuchar al cliente.
-    if (recRef.current) {
-      try { recRef.current.onresult = null; recRef.current.onend = null; recRef.current.abort() } catch { /* ya detenida */ }
-      recRef.current = null
+  function sttStartUtterance(vad) {
+    if (vad.rec && vad.rec.state !== 'inactive') return
+    vad.chunks = []
+    const rec = new MediaRecorder(vad.stream, { mimeType: 'audio/webm' })
+    vad.rec = rec
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) vad.chunks.push(e.data) }
+    rec.onstop = () => {
+      const blob = new Blob(vad.chunks, { type: rec.mimeType || 'audio/webm' })
+      vad.chunks = []
+      vad.rec = null
+      sttUpload(blob)
     }
-    sttGenRef.current += 1
-    pausedRef.current = false
-    sttLastStartRef.current = Date.now()
-    const gen = sttGenRef.current
-    recRef.current = createSTT({
-      ws,
-      speaker: 'cliente',
-      isActive: () => phaseRef.current === 'active',
-      isPaused: () => pausedRef.current,
-      isCurrent: () => gen === sttGenRef.current,
-      // Evita un bucle si Chrome rechaza el reinicio inmediato.
-      onAutoRestart: () => {
-        if (Date.now() - sttLastStartRef.current > 1500) startSTT(ws)
-      },
-    })
+    rec.start()
+  }
+
+  // Escucha el micro por volumen: arranca a grabar cuando el cliente habla y
+  // cierra la frase tras una pausa fuerte (~800ms) para transcribirla.
+  function startClientVAD() {
+    const stream = streamRef.current
+    if (sttVadRef.current || !stream || !window.AudioContext || !window.MediaRecorder) return
+    const vad = { stream, rec: null, chunks: [], speaking: false, silenceStart: 0, check: null, raf: null, actx: null }
+    sttVadRef.current = vad
+    try {
+      const actx = new (window.AudioContext || window.webkitAudioContext)()
+      vad.actx = actx
+      const src = actx.createMediaStreamSource(stream)
+      const analyser = actx.createAnalyser()
+      analyser.fftSize = 512
+      src.connect(analyser)
+      const buf = new Float32Array(analyser.fftSize)
+      const check = () => {
+        if (!sttVadRef.current) return
+        if (botSpeakingRef.current) {
+          // El bot suena por los parlantes: no transcribir la voz del propio bot.
+          if (vad.rec && vad.rec.state === 'recording') { try { vad.rec.stop() } catch { /* ya detenido */ } }
+          vad.speaking = false
+          vad.silenceStart = 0
+          vad.raf = requestAnimationFrame(check)
+          return
+        }
+        analyser.getFloatTimeDomainData(buf)
+        let sum = 0
+        for (let i = 0; i < buf.length; i += 1) sum += buf[i] * buf[i]
+        const rms = Math.sqrt(sum / buf.length)
+        const speaking = rms > 0.02
+        const now = Date.now()
+        if (speaking && !vad.speaking) {
+          vad.speaking = true
+          vad.silenceStart = 0
+          sttStartUtterance(vad)
+        } else if (!speaking && vad.speaking) {
+          vad.silenceStart = now
+          vad.speaking = false
+        } else if (!speaking && vad.silenceStart && now - vad.silenceStart > 800 && vad.rec && vad.rec.state === 'recording') {
+          vad.silenceStart = 0
+          try { vad.rec.stop() } catch { /* ya detenido */ }
+        }
+        vad.raf = requestAnimationFrame(check)
+      }
+      vad.check = check
+      vad.raf = requestAnimationFrame(check)
+    } catch { /* VAD no disponible */ }
+  }
+
+  function stopSTT() {
+    const vad = sttVadRef.current
+    if (!vad) return
+    if (vad.raf) cancelAnimationFrame(vad.raf)
+    vad.raf = null
+    if (vad.rec && vad.rec.state !== 'inactive') { try { vad.rec.stop() } catch { /* ya detenido */ } }
+    try { vad.actx?.close() } catch { /* ya cerrado */ }
+    sttVadRef.current = null
   }
 
   // Pausa la transcripcion mientras el bot habla (evita que se escuche a si mismo).
   function pauseSTT() {
-    pausedRef.current = true
-    try { recRef.current?.stop() } catch { /* ya detenida */ }
+    const vad = sttVadRef.current
+    if (!vad) return
+    if (vad.raf) cancelAnimationFrame(vad.raf)
+    vad.raf = null
+    // Cierra la frase en curso: se transcribe y el bot podra responder.
+    if (vad.rec && vad.rec.state !== 'inactive') { try { vad.rec.stop() } catch { /* ya detenido */ } }
   }
 
   function restartSTT() {
-    pausedRef.current = false
     if (phaseRef.current !== 'active') return
-    // Instancia nueva SIEMPRE: re-start() la misma tras stop() deja Chrome mudo.
-    startSTT(wsRef.current)
+    const vad = sttVadRef.current
+    if (!vad) return
+    vad.speaking = false
+    vad.silenceStart = 0
+    if (!vad.raf && vad.check) vad.raf = requestAnimationFrame(vad.check)
   }
 
   function speakBot(text) {
     if (!text) return
     if (utteranceRef.current) window.speechSynthesis?.cancel()
     pauseSTT()
+    botSpeakingRef.current = true
     setThinking(false)
     setBotSpeaking(true)
     const done = () => {
+      botSpeakingRef.current = false
       utteranceRef.current = null
       setBotSpeaking(false)
       // Pequeña pausa para que el eco del audio se asiente, luego espera al cliente.
@@ -624,6 +707,9 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
     // La grabacion arranca ya: captura el micro y el audio del bot (<audio>).
     // La pista del asesor se conecta al grafo cuando llegue (pc.ontrack).
     startClientRecording()
+    // Escucha al cliente por volumen: transcribe en el servidor (funciona en
+    // cualquier navegador) y el bot responde cuando termina de hablar.
+    startClientVAD()
 
     const ws = new WebSocket(wsUrl(`/api/calls/ws/${callId}?role=cliente&token=${clientToken}`))
     wsRef.current = ws
@@ -647,7 +733,6 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
           ws.send(JSON.stringify({ type: 'answer', sdp: answer.sdp }))
           setPhaseAll('active')
           startTimer()
-          startSTT(ws)
         } catch {
           setError('No se pudo establecer el audio de la llamada.')
           setPhaseAll('incoming')
@@ -698,5 +783,5 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
     setPhaseAll('ended')
   }
 
-  return { phase, error, duration, muted, botText, botSpeaking, thinking, mode, sttSupported, answer, decline, toggleMute, hangup }
+  return { phase, error, duration, muted, botText, botSpeaking, thinking, mode, answer, decline, toggleMute, hangup }
 }

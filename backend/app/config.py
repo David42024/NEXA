@@ -35,6 +35,13 @@ class Settings:
         os.getenv("GROK_API_URL", "https://api.groq.com/openai/v1/chat/completions"),
     )
     GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    # Transcripcion de voz (Whisper de Groq): se usa para oir al cliente en la
+    # llamada desde cualquier navegador (no depende de la Web Speech API de Chrome).
+    GROQ_STT_URL: str = os.getenv(
+        "GROQ_STT_URL",
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+    )
+    GROQ_STT_MODEL: str = os.getenv("GROQ_STT_MODEL", "whisper-large-v3")
     FALLBACK_API_KEY: str = os.getenv("FALLBACK_API_KEY", "")
     FALLBACK_PROVIDER: str = os.getenv("FALLBACK_PROVIDER", "gemini")
     GEMINI_API_URL: str = os.getenv(

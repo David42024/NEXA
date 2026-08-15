@@ -60,6 +60,49 @@ def test_start_cliente_inexistente(client):
     assert resp.status_code == 404
 
 
+def test_stt_audio_transcribe_con_whisper(client, monkeypatch):
+    """El clip de voz del cliente se transcribe en el servidor (Whisper de Groq)."""
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    async def fake_transcribe(_data, _filename):
+        return "no estoy interesado"
+
+    monkeypatch.setattr("app.api.calls.stt_engine.transcribe_audio", fake_transcribe)
+
+    resp = client.post(
+        f"/api/calls/{call_id}/stt-audio?token={data['cliente_token']}",
+        files={"file": ("audio.webm", b"audio-bytes", "audio/webm")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["text"] == "no estoy interesado"
+
+    # Token invalido -> 401
+    resp = client.post(
+        f"/api/calls/{call_id}/stt-audio?token=malo",
+        files={"file": ("audio.webm", b"audio-bytes", "audio/webm")},
+    )
+    assert resp.status_code == 401
+
+
+def test_stt_audio_sin_whisper_devuelve_vacio(client, monkeypatch):
+    """Si la transcripcion falla, devuelve texto vacio (la llamada sigue)."""
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    async def fake_transcribe(_data, _filename):
+        return ""
+
+    monkeypatch.setattr("app.api.calls.stt_engine.transcribe_audio", fake_transcribe)
+
+    resp = client.post(
+        f"/api/calls/{call_id}/stt-audio?token={data['cliente_token']}",
+        files={"file": ("audio.webm", b"audio-bytes", "audio/webm")},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["text"] == ""
+
+
 def test_grabacion_subida_por_cliente_y_descargada_por_asesor(client):
     token, data = _start(client)
     call_id = data["call_id"]
