@@ -130,7 +130,7 @@ function useStreamCleanup() {
 /**
  * Lado del asesor: inicia la llamada, publica el enlace y negocia el audio P2P.
  */
-export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteStream }) {
+export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteStream, onAcceptance }) {
   const [phase, setPhase] = useState('idle') // idle | starting | ringing | active | ended
   const [error, setError] = useState(null)
   const [callInfo, setCallInfo] = useState(null)
@@ -321,6 +321,9 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           serverRecordingRef.current = true
           const id = callIdRef.current || callInfo?.call_id
           if (id) setRecordingUrl(`${import.meta.env.VITE_API_URL || ''}/api/calls/${id}/recording`)
+        } else if (msg.type === 'acceptance') {
+          // El cliente acepto la oferta: el asesor puede tomar el control.
+          onAcceptance?.(msg)
         } else if (msg.type === 'mode') {
           if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
         } else if (msg.type === 'ended') {

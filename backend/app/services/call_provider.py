@@ -57,6 +57,43 @@ def classify_objection(text: str):
     return None
 
 
+# Frases con las que el cliente da el "si" tras ser convencido: disparan el
+# aviso al asesor para que tome el control de la llamada y cierre la venta.
+ACCEPTANCE_PHRASES = [
+    "me parece bien",
+    "está bien",
+    "esta bien",
+    "de acuerdo",
+    "acepto",
+    "aceptar",
+    "me interesa",
+    "sí quiero",
+    "si quiero",
+    "sí, quiero",
+    "adelante",
+    "dale",
+    "ok, ",
+    "me convenció",
+    "me convencio",
+    "cómo lo hago",
+    "como lo hago",
+    "cómo me registro",
+    "como me registro",
+    "cuándo empieza",
+    "cuando empieza",
+    "quiero el plan",
+    "quiero la oferta",
+    "me gustaría",
+    "me encantaría",
+]
+
+
+def classify_acceptance(text: str) -> bool:
+    """Detecta si el cliente acepto la oferta (para el aviso de traspaso)."""
+    t = (text or "").lower()
+    return any(p in t for p in ACCEPTANCE_PHRASES)
+
+
 def _offering_out(offering):
     """Payload compacto del Offering para los eventos del WebSocket."""
     if offering is None:
@@ -176,6 +213,7 @@ class CallSession:
         self.last_ai_at = {}  # cooldown por hablante (cliente / asesor)
         self.mood_score = 0.0  # animo del cliente en vivo (-1 enojado .. +1 entusiasmado)
         self.recording = None  # bytes del audio completo subido por el cliente
+        self.acceptance_sent = False  # aviso de traspaso al asesor ya emitido
 
 
 class P2PWebRTCProvider:
@@ -216,6 +254,16 @@ class P2PWebRTCProvider:
     async def notify_recording(self, sess):
         """Avisa al asesor que la grabacion completa del cliente ya esta lista."""
         await self._send(sess.asesor_ws, {"type": "recording"})
+
+    async def _notify_acceptance(self, sess, text):
+        """Si el cliente acepto la oferta (tras ser convencido), avisa al asesor
+        para que tome el control de la llamada y cierre la venta."""
+        if sess.mode != "bot" or sess.acceptance_sent:
+            return
+        if not classify_acceptance(text):
+            return
+        sess.acceptance_sent = True
+        await self._send(sess.asesor_ws, {"type": "acceptance", "text": text})
 
     async def attach(self, sess, role, ws, db=None):
         if role == "asesor":
@@ -277,6 +325,7 @@ class P2PWebRTCProvider:
             if msg.get("final"):
                 if speaker == "cliente":
                     await self._update_mood(sess, text)
+                    await self._notify_acceptance(sess, text)
                 asyncio.create_task(self._run_copilot(sess, text, speaker, db))
         elif kind == "mode":
             # El asesor decide en vivo si habla el (modo asesor) o el bot (modo bot).

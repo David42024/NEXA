@@ -13,7 +13,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from app import models
-from app.services.call_provider import classify_objection
+from app.services.call_provider import classify_objection, classify_acceptance
 from app.services import sentiment_engine
 
 from conftest import login, auth
@@ -211,6 +211,52 @@ def test_ws_bot_rebate_siempre_aun_sin_ia(client, monkeypatch):
             copilot = _recv_until(asesor_ws, "copilot", predicate=lambda e: e.get("objection") is not None)
             assert copilot["objection"]["type"] == "no_necesita"
             assert copilot["suggestion"]
+
+
+def test_ws_aceptacion_avisa_al_asesor(client, monkeypatch):
+    """Cuando el cliente dice que si, el asesor recibe el aviso para tomar control."""
+    async def fake_reply(ctx, message):
+        return {"reply": "perfecto, me interesa", "source": "groq"}
+    monkeypatch.setattr("app.services.call_provider.chat_engine.generate_nexabot_reply", fake_reply)
+
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        _recv_until(asesor_ws, "status")  # dialing
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            _recv_until(asesor_ws, "status")  # active
+            _recv_until(cliente_ws, "bot_speech")  # apertura del bot
+            _recv_until(asesor_ws, "copilot")  # apertura vista por el asesor
+
+            # El cliente acepta: llega el aviso de traspaso (una sola vez).
+            cliente_ws.send_json({"type": "stt", "text": "sí me parece bien, quiero el plan", "final": True})
+            stt = _recv_until(asesor_ws, "stt")
+            assert stt["speaker"] == "cliente"
+            acc = _recv_until(asesor_ws, "acceptance")
+            assert acc["text"] == "sí me parece bien, quiero el plan"
+
+            # Consume el copilot de la primera respuesta para dejar la cola limpia.
+            assert _recv_until(asesor_ws, "copilot")["type"] == "copilot"
+
+            # Un segundo "si" NO vuelve a disparar el aviso (solo se avisa una vez).
+            cliente_ws.send_json({"type": "stt", "text": "si quiero, adelante", "final": True})
+            assert _recv_until(asesor_ws, "stt")["speaker"] == "cliente"
+            mood_evt = asesor_ws.receive_json()
+            cop_evt = asesor_ws.receive_json()
+            assert mood_evt["type"] == "mood"
+            assert cop_evt["type"] == "copilot", "No debe re-dispararse el acceptance"
+
+
+def test_classify_acceptance():
+    assert classify_acceptance("sí me parece bien")
+    assert classify_acceptance("está bien, me interesa")
+    assert classify_acceptance("adelante, quiero el plan")
+    assert classify_acceptance("de acuerdo, acepto")
+    assert not classify_acceptance("no, gracias, no estoy interesada")
+    assert not classify_acceptance("me parece un poco caro")
 
 
 def test_ws_stt_dispara_copilot(client, monkeypatch):

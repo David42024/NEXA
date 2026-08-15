@@ -33,6 +33,7 @@ export default function LiveCallPanel({
   const [copied, setCopied] = useState(false)
   const [savingRecording, setSavingRecording] = useState(false)
   const [lastOffering, setLastOffering] = useState(null)
+  const [handoff, setHandoff] = useState(null) // aceptacion del cliente -> tomar control
   const audioRef = useRef(null)
   const wasActive = useRef(false)
   const lastOfferingRef = useRef(null)
@@ -100,6 +101,7 @@ export default function LiveCallPanel({
     clientId,
     onCopilotEvent,
     onOffering: handleOfferingEvent,
+    onAcceptance: (msg) => setHandoff(msg),
     onRemoteStream: (stream) => {
       if (audioRef.current) {
         audioRef.current.srcObject = stream
@@ -114,11 +116,13 @@ export default function LiveCallPanel({
     if (call.phase === 'idle') {
       lastOfferingRef.current = null
       setLastOffering(null)
+      setHandoff(null)
       onCallReset?.()
     }
     if (call.phase === 'active') wasActive.current = true
     if (call.phase === 'ended' && wasActive.current) {
       wasActive.current = false
+      setHandoff(null)
       setSavingRecording(true)
       const t = setTimeout(() => {
         setSavingRecording(false)
@@ -329,6 +333,37 @@ export default function LiveCallPanel({
       )}
 
       {call.error && <p className="mt-2 text-xs text-rose-600">{call.error}</p>}
+
+      {handoff && call.phase === 'active' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-emerald-300 bg-white p-6 text-center shadow-2xl dark:border-emerald-400/40 dark:bg-navy-900">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+              <Check className="h-6 w-6" />
+            </div>
+            <h3 className="mt-4 font-display text-lg font-bold text-navy-900 dark:text-white">
+              {firstName} aceptó la oferta
+            </h3>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
+              “{handoff.text}”. Es el momento del cierre: ¿tomas el control de la llamada?
+            </p>
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                onClick={() => { call.switchMode('asesor'); setHandoff(null) }}
+                className="btn-primary flex w-full items-center justify-center gap-2 text-sm"
+              >
+                <Phone className="h-4 w-4" />
+                Tomar el control
+              </button>
+              <button
+                onClick={() => setHandoff(null)}
+                className="btn-secondary w-full text-xs"
+              >
+                Que siga el bot
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
