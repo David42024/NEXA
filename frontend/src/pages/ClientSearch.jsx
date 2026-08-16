@@ -208,7 +208,7 @@ export default function ClientSearch() {
                 <ClientRow key={c.id} c={c} onSelect={selectClient} />
               ))}
             </div>
-            <div className="shrink-0 lg:sticky lg:top-24">
+            <div className="order-first shrink-0 lg:order-none lg:sticky lg:top-24">
               <ScoreLegend />
             </div>
           </div>
@@ -259,7 +259,7 @@ export default function ClientSearch() {
                 </button>
               </div>
             </div>
-            <div className="shrink-0 lg:sticky lg:top-24">
+            <div className="order-first shrink-0 lg:order-none lg:sticky lg:top-24">
               <ScoreLegend />
             </div>
           </div>
