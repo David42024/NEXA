@@ -80,7 +80,23 @@ describe('Dashboard del asesor', () => {
     api.get.mockImplementation((url) => {
       if (url === '/api/admin/kpis') return Promise.resolve({ data: KPI_DATA })
       if (url === '/api/asesor/progreso') return Promise.resolve({ data: PROGRESO_DATA })
-      if (url === '/api/asesor/priorizados') return Promise.resolve({ data: PRIORIZADOS_DATA })
+      if (url.startsWith('/api/asesor/priorizados')) {
+        const u = new URL('http://localhost' + url)
+        const seg = u.searchParams.get('segmento') || 'Todos'
+        const page = parseInt(u.searchParams.get('page') || '1', 10)
+        const pageSize = parseInt(u.searchParams.get('page_size') || '30', 10)
+        const filtered =
+          seg === 'Todos' ? PRIORIZADOS_DATA.clientes : PRIORIZADOS_DATA.clientes.filter((c) => c.segmento === seg)
+        return Promise.resolve({
+          data: {
+            segmentos: PRIORIZADOS_DATA.segmentos,
+            total: filtered.length,
+            page,
+            page_size: pageSize,
+            clientes: filtered.slice((page - 1) * pageSize, page * pageSize),
+          },
+        })
+      }
       return Promise.reject(new Error(`No mock para ${url}`))
     })
   })
@@ -103,22 +119,71 @@ describe('Dashboard del asesor', () => {
     expect(screen.getAllByText('Alerta Roja').length).toBeGreaterThanOrEqual(2)
   })
 
-  it('filtra la lista por segmento al hacer click en el chip', async () => {
+  it('filtra por segmento en el servidor al hacer click en el chip', async () => {
     renderAsesorDashboard()
     expect(await screen.findByText('Ana Maria Gomez')).toBeInTheDocument()
 
     fireEvent.click(screen.getAllByText('Alerta Roja')[0])
 
-    expect(screen.getByText('Riesgo Perez')).toBeInTheDocument()
+    // El click dispara una nueva petición con segmento=Alerta y página 1.
+    const calls = api.get.mock.calls.map((c) => c[0])
+    expect(calls.some((u) => u.includes('segmento=Alerta') && u.includes('page=1'))).toBe(true)
+    expect(await screen.findByText('Riesgo Perez')).toBeInTheDocument()
     expect(screen.queryByText('Ana Maria Gomez')).not.toBeInTheDocument()
-    expect(screen.queryByText('Gabriela Soria')).not.toBeInTheDocument()
   })
 
   it('usa solo la cartera propia: llama /api/asesor/priorizados', async () => {
     renderAsesorDashboard()
     await screen.findByText('Ana Maria Gomez')
     const urls = api.get.mock.calls.map((c) => c[0])
-    expect(urls).toContain('/api/asesor/priorizados')
+    expect(urls.some((u) => u.startsWith('/api/asesor/priorizados'))).toBe(true)
     expect(urls).not.toContain('/api/clients/search?q=C0')
+  })
+
+  it('pagina por segmentos grandes: siguiente pide la página 2', async () => {
+    const muchos = Array.from({ length: 45 }, (_, i) => ({
+      id: `C${String(i + 1).padStart(5, '0')}`,
+      name: `Cliente ${i + 1}`,
+      district: 'Ate',
+      segmento: 'Alerta',
+      elegible: false,
+      score: 100 - i,
+      top_offer: 'Plan Hogar',
+      plan_actual: 'Plan 69',
+      mejor_hora: '08:00-12:00',
+      llamable_ahora: false,
+    }))
+    api.get.mockImplementation((url) => {
+      if (url.startsWith('/api/asesor/priorizados')) {
+        const u = new URL('http://localhost' + url)
+        const page = parseInt(u.searchParams.get('page') || '1', 10)
+        const pageSize = parseInt(u.searchParams.get('page_size') || '30', 10)
+        return Promise.resolve({
+          data: {
+            segmentos: [
+              { id: 'Todos', label: 'Todos', count: 45 },
+              { id: 'Alerta', label: 'Alerta Roja', count: 45 },
+            ],
+            total: 45,
+            page,
+            page_size: pageSize,
+            clientes: muchos.slice((page - 1) * pageSize, page * pageSize),
+          },
+        })
+      }
+      if (url === '/api/admin/kpis') return Promise.resolve({ data: KPI_DATA })
+      if (url === '/api/asesor/progreso') return Promise.resolve({ data: PROGRESO_DATA })
+      return Promise.reject(new Error())
+    })
+
+    renderAsesorDashboard()
+    expect(await screen.findByText('Cliente 1')).toBeInTheDocument()
+    expect(screen.getByText(/Mostrando 1–30 de 45/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /Siguiente/ }))
+
+    expect(await screen.findByText('Cliente 31')).toBeInTheDocument()
+    expect(screen.queryByText('Cliente 1')).not.toBeInTheDocument()
+    expect(screen.getByText(/Mostrando 31–45 de 45/)).toBeInTheDocument()
   })
 })

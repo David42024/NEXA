@@ -1,11 +1,13 @@
 """Progreso comercial del asesor en sesion (ventas de hoy/semana/mes vs metas)."""
+import time
 from datetime import date, datetime, timedelta
 from sqlalchemy import func
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
+from app.config import settings
 from app.security import require_any_permission
 from app.services.config_service import get_metas
 from app.api.clients import _nbo_top, _mejor_hora, _llamable_ahora, _is_elegible, _plan_actual
@@ -20,6 +22,15 @@ _SEGMENTOS = [
     ("Gigas", "Hambrientos de Datos"),
     ("Digital", "Nativos Digitales"),
 ]
+
+# Cache en memoria de la cartera puntuada por asesor. El score NBO depende solo
+# del perfil (estático), así que paginar un segmento no vuelve a puntuar a los
+# ~1k clientes en cada request: la primera petición puntúa y las siguientes
+# páginas reusan el mismo orden. Se desactiva en tests para que sigan
+# deterministas (cada test usa su propia BD en memoria).
+_CARTERA_CACHE: dict = {}
+_CARTERA_CACHE_TTL = 300
+_CARTERA_CACHE_MAX = 50
 
 
 def _segmento_cliente(profile: dict) -> str | None:
@@ -95,40 +106,28 @@ def get_mi_progreso(
     }
 
 
-@router.get("/priorizados", response_model=schemas.AsesorPriorizadosResponse)
-def get_mis_clientes_priorizados(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_any_permission("view_dashboard")),
-):
-    """Clientes de MI cartera, priorizados por score NBO y categorizados en
-    segmentos estratégicos (Oro Convergente, Alerta Roja, Hambrientos de
-    Datos, Nativos Digitales) con sus conteos por chip.
+def _cartera_puntuada(db: Session, asesor_id: int) -> list:
+    """Cartera completa del asesor puntuada (NBO) y ordenada por score desc."""
+    if settings.ENVIRONMENT != "test":
+        now = time.time()
+        hit = _CARTERA_CACHE.get(asesor_id)
+        if hit and now - hit[0] < _CARTERA_CACHE_TTL:
+            return hit[1]
 
-    El barrido se acota a la cartera del asesor autenticado (~1k clientes) y el
-    scoring NBO es CPU puro (no toca la BD por cliente), así que la petición
-    sigue siendo pequeña y rápida incluso contra Neon.
-    """
     cartera = (
         db.query(models.Client)
-        .filter(models.Client.asesor_id == current_user.id)
+        .filter(models.Client.asesor_id == asesor_id)
         .all()
     )
-
-    counts = {sid: 0 for sid, _label in _SEGMENTOS if sid != "Todos"}
-    counts["Todos"] = len(cartera)
-
     clientes = []
     for c in cartera:
-        seg = _segmento_cliente(c.profile)
-        if seg:
-            counts[seg] += 1
         mejor_hora = _mejor_hora(c.profile)
         score, top_offer, motivo = _nbo_top(c)
         clientes.append(schemas.ClientSummary(
             id=c.id,
             name=c.name,
             district=c.district,
-            segmento=seg,
+            segmento=_segmento_cliente(c.profile),
             elegible=_is_elegible(c.profile),
             score=score,
             top_offer=top_offer,
@@ -137,10 +136,49 @@ def get_mis_clientes_priorizados(
             mejor_hora=mejor_hora,
             llamable_ahora=_llamable_ahora(mejor_hora),
         ))
-
     clientes.sort(key=lambda s: s.score, reverse=True)
+
+    if settings.ENVIRONMENT != "test":
+        if len(_CARTERA_CACHE) >= _CARTERA_CACHE_MAX:
+            _CARTERA_CACHE.pop(next(iter(_CARTERA_CACHE)))
+        _CARTERA_CACHE[asesor_id] = (time.time(), clientes)
+    return clientes
+
+
+@router.get("/priorizados", response_model=schemas.AsesorPriorizadosResponse)
+def get_mis_clientes_priorizados(
+    segmento: str = Query("Todos"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_any_permission("view_dashboard")),
+):
+    """Clientes de MI cartera, priorizados por score NBO y categorizados en
+    segmentos estratégicos, con conteos por chip y paginación servidor-side.
+
+    Los conteos cubren TODA la cartera del asesor (~1k clientes), pero el
+    listado devuelve una sola página (por defecto 30) para no transferir todo
+    el segmento de golpe. `segmento` filtra por chip; la puntuación se cachea
+    por asesor (los scores solo dependen del perfil), así que avanzar de página
+    no repite el scoring.
+    """
+    puntuados = _cartera_puntuada(db, current_user.id)
+
+    counts = {sid: 0 for sid, _label in _SEGMENTOS if sid != "Todos"}
+    for s in puntuados:
+        if s.segmento:
+            counts[s.segmento] = counts.get(s.segmento, 0) + 1
+    counts["Todos"] = len(puntuados)
+
+    filtrados = [s for s in puntuados if segmento == "Todos" or s.segmento == segmento]
+    total = len(filtrados)
+    start = (page - 1) * page_size
+    clientes = filtrados[start:start + page_size]
+
     segmentos = [
         schemas.SegmentoCount(id=sid, label=label, count=counts[sid])
         for sid, label in _SEGMENTOS
     ]
-    return schemas.AsesorPriorizadosResponse(segmentos=segmentos, clientes=clientes[:30])
+    return schemas.AsesorPriorizadosResponse(
+        segmentos=segmentos, total=total, page=page, page_size=page_size, clientes=clientes
+    )

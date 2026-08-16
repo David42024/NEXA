@@ -34,6 +34,8 @@ def test_asesor_ve_clientes_priorizados_de_su_cartera(client, session):
     assert segs["Alerta"] == 1   # C00009 mora 12 / reclamos 2
     assert segs["Gigas"] == 0
     assert segs["Digital"] == 0
+    assert body["total"] == 4
+    assert body["page"] == 1 and body["page_size"] == 30
 
     by_id = {c["id"]: c for c in body["clientes"]}
     assert by_id["C00001"]["segmento"] == "Oro"
@@ -41,6 +43,48 @@ def test_asesor_ve_clientes_priorizados_de_su_cartera(client, session):
     assert by_id["C00009"]["segmento"] == "Alerta"
     scores = [c["score"] for c in body["clientes"]]
     assert scores == sorted(scores, reverse=True)
+
+
+def test_priorizados_paginados_y_filtrados_por_segmento(client, session):
+    """La paginación es servidor-side: una página por request, sin repetir ids."""
+    asesor = session.query(models.User).filter_by(email="asesor@nexa.demo").first()
+    for c in session.query(models.Client).all():
+        c.asesor_id = asesor.id
+    session.add(models.Client(
+        id="C00009", name="Riesgo Perez", document_last4="0000", phone_last4="0000",
+        district="Ate", asesor_id=asesor.id,
+        profile={
+            "servicio": {"tipo": "Postpago"},
+            "consumo": {"datos_gb": 5, "app_uso": "Bajo"},
+            "hogar": {"tiene_internet": False},
+            "facturacion": {"dias_mora_prom": 12},
+            "comportamiento": {"n_reclamos": 2},
+            "elegibilidad": {"movistar_total": False, "upgrade": False, "equipo": False, "plan_hogar": True},
+        },
+    ))
+    session.commit()
+
+    token = login(client)
+    headers = auth(token)
+    p1 = client.get("/api/asesor/priorizados?page=1&page_size=2", headers=headers).json()
+    p2 = client.get("/api/asesor/priorizados?page=2&page_size=2", headers=headers).json()
+
+    assert p1["total"] == 4 and p2["total"] == 4
+    assert len(p1["clientes"]) == 2 and len(p2["clientes"]) == 2
+    ids1 = {c["id"] for c in p1["clientes"]}
+    ids2 = {c["id"] for c in p2["clientes"]}
+    assert ids1.isdisjoint(ids2)
+    assert ids1 | ids2 == {"C00001", "C00002", "C00003", "C00009"}
+
+    # Filtro por segmento: solo el cliente en riesgo de churn.
+    alerta = client.get("/api/asesor/priorizados?segmento=Alerta", headers=headers).json()
+    assert alerta["total"] == 1
+    assert [c["id"] for c in alerta["clientes"]] == ["C00009"]
+
+    # Más allá del final: lista vacía, conteos intactos.
+    fin = client.get("/api/asesor/priorizados?page=99", headers=headers).json()
+    assert fin["clientes"] == [] and fin["total"] == 4
+    assert {s["id"]: s["count"] for s in fin["segmentos"]}["Todos"] == 4
 
 
 def test_priorizados_solo_la_propia_cartera(client):

@@ -63,6 +63,9 @@ class SegmentoCount(BaseModel):
 
 class AsesorPriorizadosResponse(BaseModel):
     segmentos: List[SegmentoCount]
+    total: int
+    page: int
+    page_size: int
     clientes: List[ClientSummary]
 
 

@@ -164,6 +164,9 @@ export default function Dashboard() {
   const [progreso, setProgreso] = useState(null)
   const [segmentos, setSegmentos] = useState([])
   const [segFiltro, setSegFiltro] = useState('Todos')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [priorLoading, setPriorLoading] = useState(false)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [clientsError, setClientsError] = useState(false)
@@ -184,7 +187,7 @@ export default function Dashboard() {
           : Promise.resolve({ data: null })
         // El asesor ve SU cartera categorizada en segmentos estratégicos (referencia del panel gerencial).
         const clientsRes = isAsesor
-          ? api.get('/api/asesor/priorizados').catch(() => null)
+          ? api.get('/api/asesor/priorizados?segmento=Todos&page=1&page_size=30').catch(() => null)
           : Promise.resolve({ data: null })
         const [k, f, a, p, c] = await Promise.all([kpiRes, funnelRes, asesoresRes, progresoRes, clientsRes])
         setKpis(k.data)
@@ -194,6 +197,8 @@ export default function Dashboard() {
         setProgreso(p?.data || null)
         setSegmentos(c?.data?.segmentos || [])
         setClients(c?.data?.clientes || [])
+        setTotal(c?.data?.total ?? 0)
+        setPage(1)
         setClientsError(!c)
       } finally {
         setLoading(false)
@@ -207,7 +212,32 @@ export default function Dashboard() {
     if (query.trim()) navigate(`/clientes?q=${encodeURIComponent(query.trim())}`)
   }
 
-  const clientesFiltrados = segFiltro === 'Todos' ? clients : clients.filter((cl) => cl.segmento === segFiltro)
+  const PAGE_SIZE = 30
+
+  async function loadPriorizados(seg, pg) {
+    setPriorLoading(true)
+    try {
+      const res = await api.get(
+        `/api/asesor/priorizados?segmento=${encodeURIComponent(seg)}&page=${pg}&page_size=${PAGE_SIZE}`
+      )
+      if (res) {
+        setSegmentos(res.data?.segmentos || [])
+        setClients(res.data?.clientes || [])
+        setTotal(res.data?.total ?? 0)
+        setPage(pg)
+        setClientsError(false)
+      }
+    } catch {
+      setClientsError(true)
+    } finally {
+      setPriorLoading(false)
+    }
+  }
+
+  function handleSegClick(segId) {
+    setSegFiltro(segId)
+    loadPriorizados(segId, 1)
+  }
 
   const card = 'rounded-2xl border border-black/60 bg-white p-6 transition-colors duration-200 dark:border-white/60 dark:bg-navy-800/60'
 
@@ -299,7 +329,7 @@ export default function Dashboard() {
                 return (
                   <button
                     key={seg.id}
-                    onClick={() => setSegFiltro(seg.id)}
+                    onClick={() => handleSegClick(seg.id)}
                     className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
                       active
                         ? def.chipActive
@@ -321,17 +351,18 @@ export default function Dashboard() {
             </div>
           )}
 
-          {loading ? (
+          {loading || priorLoading ? (
             <ClientListSkeleton />
           ) : clientsError ? (
             <p className="text-sm text-slate-400">
               No se pudieron cargar los clientes priorizados.
             </p>
-          ) : clientesFiltrados.length === 0 ? (
+          ) : clients.length === 0 ? (
             <p className="text-sm text-slate-400">Sin clientes en este segmento.</p>
           ) : (
+            <>
             <div className="divide-y divide-slate-100 dark:divide-white/5">
-              {clientesFiltrados.map((c) => (
+              {clients.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => navigate(`/clientes/${c.id}`)}
@@ -389,6 +420,33 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+
+            {/* Paginación servidor-side: una página a la vez para no cargar todo el segmento */}
+            {total > PAGE_SIZE && (
+              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/5">
+                <p className="text-xs text-slate-400">
+                  Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} de{' '}
+                  {total.toLocaleString('es-PE')}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    disabled={page <= 1 || priorLoading}
+                    onClick={() => loadPriorizados(segFiltro, page - 1)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    ← Anterior
+                  </button>
+                  <button
+                    disabled={page * PAGE_SIZE >= total || priorLoading}
+                    onClick={() => loadPriorizados(segFiltro, page + 1)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 dark:border-white/10 dark:text-slate-300 dark:hover:bg-white/5"
+                  >
+                    Siguiente →
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </section>
 
