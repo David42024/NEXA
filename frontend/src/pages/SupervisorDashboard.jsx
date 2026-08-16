@@ -181,6 +181,20 @@ export default function SupervisorDashboard() {
         </span>
       </div>
 
+      {/* Error visible: la API no respondió (p. ej. backend dormido o CORS). */}
+      {!loading && kpis === null && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/5 dark:text-amber-300">
+          <AlertCircle className="mt-0.5 shrink-0" size={18} />
+          <div>
+            <p className="font-bold">No se pudieron cargar los datos del backend.</p>
+            <p>
+              Las métricas quedaron vacías. Verifica que la API esté disponible y tu sesión siga activa, y recarga la
+              página.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Top 4 KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card p-5">

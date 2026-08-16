@@ -106,6 +106,14 @@ describe('SupervisorDashboard', () => {
     expect(screen.getByText('Volumen de base: 45%')).toBeInTheDocument()
   })
 
+  it('muestra un aviso cuando la API no responde', async () => {
+    api.get.mockImplementation(() => Promise.reject(new Error('Network/CORS')))
+    renderDashboard()
+    expect(await screen.findByText('No se pudieron cargar los datos del backend.')).toBeInTheDocument()
+    // El bloque de churn es estatico y sigue visible.
+    expect(screen.getByText('Oro Convergente')).toBeInTheDocument()
+  })
+
   it('rankear embajadores y riesgo por conversión de cartera', async () => {
     renderDashboard()
     expect((await screen.findAllByText('Ana Torres')).length).toBeGreaterThan(0)
