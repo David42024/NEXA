@@ -26,7 +26,7 @@ import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import func, inspect
+from sqlalchemy import func, inspect, update as sa_update
 
 from app.database import engine, SessionLocal
 from app import models
@@ -354,41 +354,44 @@ def load_asesores(db, path: Path = None, password: str = ASESOR_DEFAULT_PASSWORD
 
 
 def assign_cartera(db, clientes_por_asesor: int = None) -> int:
-    """Reparte los clientes entre los asesores (cartera). Idempotente.
+    """Reparte los clientes entre los asesores (cartera). Idempotente y reanudable.
 
     Se asigna de a rangos contiguos ordenando por id: con 100.000 clientes y
     100 asesores quedan ~1.000 clientes por asesor. Si `clientes_por_asesor` se
-    omite, se reparte equilibrado (ceil(total / n_asesores)). La iteracion usa
-    barrido por lotes (keyset pagination) para no cargar los 100k a memoria.
+    omite, se reparte equilibrado (ceil(total / n_asesores)).
+
+    Usa un UPDATE masivo por asesor (IN con el rango de ids) y solo toca los
+    clientes que siguen sin `asesor_id`: una corrida interrumpida a mitad se
+    completa en la siguiente ejecucion sin reescribir lo ya asignado.
     """
     asesores = db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all()
     n = len(asesores)
     if n == 0:
         print("[csv_loader] No hay asesores; se omite el reparto de cartera.")
         return 0
-    if db.query(models.Client).filter(models.Client.asesor_id.isnot(None)).first():
-        print("[csv_loader] Cartera ya asignada; se omite.")
+
+    ids = [r[0] for r in db.query(models.Client.id).order_by(models.Client.id).all()]
+    if not ids:
+        print("[csv_loader] No hay clientes; se omite el reparto de cartera.")
         return 0
 
-    total = db.query(func.count(models.Client.id)).scalar() or 0
+    total = len(ids)
     per = int(clientes_por_asesor) if clientes_por_asesor else max(1, math.ceil(total / n))
 
     assigned = 0
-    idx = 0
-    last_id = None
-    while True:
-        q = db.query(models.Client).order_by(models.Client.id)
-        if last_id:
-            q = q.filter(models.Client.id > last_id)
-        batch = q.limit(BATCH).all()
-        if not batch:
-            break
-        for c in batch:
-            c.asesor_id = asesores[min(idx // per, n - 1)].id
-            idx += 1
-            assigned += 1
-        last_id = batch[-1].id
-        db.commit()
+    for i in range(0, total, per):
+        chunk = ids[i:i + per]
+        aid = asesores[min(i // per, n - 1)].id
+        result = db.execute(
+            sa_update(models.Client)
+            .where(models.Client.id.in_(chunk), models.Client.asesor_id.is_(None))
+            .values(asesor_id=aid)
+        )
+        assigned += result.rowcount or 0
+        if assigned % 20000 == 0:
+            db.commit()
+            print(f"[csv_loader] Cartera asignada: {assigned}/{total}")
+    db.commit()
     print(f"[csv_loader] Cartera asignada: {assigned} clientes en {n} asesores (~{per} c/u).")
     return assigned
 

@@ -168,6 +168,32 @@ def test_assign_cartera_respeta_tamano_por_asesor(tmp_path, session):
     assert max(counts.values()) <= 2
 
 
+def test_assign_cartera_completa_una_corrida_parcial(tmp_path, session):
+    csv_loader.load_offers(session, _write_offers(tmp_path))
+    csv_loader.load_clients(session, _write_clients(tmp_path))
+    csv_loader.load_asesores(session, _write_asesores(tmp_path))
+    total_clientes = session.query(models.Client).count()
+    assert total_clientes == 6
+
+    # Simula una corrida interrumpida a mitad: solo los 2 primeros asignados.
+    ids_ordenados = [r[0] for r in session.query(models.Client.id).order_by(models.Client.id).all()]
+    primer_asesor = session.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).first()
+    for cid in ids_ordenados[:2]:
+        c = session.query(models.Client).filter(models.Client.id == cid).first()
+        c.asesor_id = primer_asesor.id
+    session.commit()
+
+    # La siguiente corrida completa el resto sin reescribir lo ya asignado.
+    assigned = csv_loader.assign_cartera(session, clientes_por_asesor=1)
+    assert assigned == total_clientes - 2
+    assert session.query(models.Client).filter(models.Client.asesor_id.is_(None)).count() == 0
+    # El primer cliente conserva el asesor del primer reparto.
+    c1 = session.query(models.Client).filter(models.Client.id == ids_ordenados[0]).first()
+    assert c1.asesor_id == primer_asesor.id
+    # Y una corrida completa es no-op (no reescribe nada).
+    assert csv_loader.assign_cartera(session, clientes_por_asesor=1) == 0
+
+
 def _write_offers(tmp_path):
     p = tmp_path / "offers.csv"
     _write_tmp(p, OFFERS_SAMPLE)
