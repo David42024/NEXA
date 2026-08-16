@@ -6,6 +6,7 @@ import ProtectedRoute from './components/ProtectedRoute.jsx'
 
 import Login from './pages/Login.jsx'
 import Dashboard from './pages/Dashboard.jsx'
+import SupervisorDashboard from './pages/SupervisorDashboard.jsx'
 import ClientSearch from './pages/ClientSearch.jsx'
 import ClientProfile from './pages/ClientProfile.jsx'
 import ClientCall from './pages/ClientCall.jsx'
@@ -15,6 +16,9 @@ import Admin from './pages/Admin.jsx'
 export default function App() {
   const { user } = useAuth()
 
+  // El dashboard gerencial es la vista del supervisor/admin; el asesor usa el suyo.
+  const HomeDashboard = user?.role === 'supervisor' || user?.role === 'admin' ? SupervisorDashboard : Dashboard
+
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
@@ -23,7 +27,7 @@ export default function App() {
         path="/"
         element={
           <ProtectedRoute permission="view_dashboard">
-            <Layout><Dashboard /></Layout>
+            <Layout><HomeDashboard /></Layout>
           </ProtectedRoute>
         }
       />

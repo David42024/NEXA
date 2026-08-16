@@ -75,3 +75,44 @@ def test_kpis_supervisor_siguen_siendo_globales(client):
     resp = c.get("/api/admin/kpis", headers=auth(token))
     assert resp.status_code == 200
     assert resp.json()["total_clientes"] == 3
+
+
+def test_asesores_incluye_conversion_de_cartera(client, session):
+    """El ranking del supervisor usa el desempeno REAL de la cartera de cada asesor."""
+    c = client
+    asesor = session.query(models.User).filter(models.User.email == "asesor@nexa.demo").first()
+    for cid in ("C00001", "C00002"):
+        cli = session.query(models.Client).filter(models.Client.id == cid).first()
+        cli.asesor_id = asesor.id
+    session.add(models.Interaction(client_id="C00001", result="accepted"))
+    session.add(models.Interaction(client_id="C00002", result="rejected", rejection_reason="precio"))
+    session.commit()
+
+    token = login(c, "supervisor@nexa.demo", "supervisor123")
+    resp = c.get("/api/admin/asesores", headers=auth(token))
+    assert resp.status_code == 200
+    row = next(r for r in resp.json()["asesores"] if r["email"] == "asesor@nexa.demo")
+    assert row["clientes_cartera"] == 2
+    assert row["interacciones"] == 2
+    assert row["aceptadas"] == 1
+    assert row["rechazadas"] == 1
+    assert row["conversion_pct"] == 50.0
+    assert row["friccion_pct"] == 50.0
+
+
+def test_segmentos_cuenta_elegibles_por_tipo(client):
+    """La segmentacion IA agrupa la base por elegibilidad en una sola pasada."""
+    c = client
+    token = login(c, "supervisor@nexa.demo", "supervisor123")
+    resp = c.get("/api/admin/segmentos", headers=auth(token))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["base"] == 3
+    by = {s["key"]: s["count"] for s in data["segmentos"]}
+    assert by["movistar_total"] == 1
+    assert by["upgrade"] == 2
+    assert by["equipo"] == 1
+    assert by["plan_hogar"] == 1
+    mt = next(s for s in data["segmentos"] if s["key"] == "movistar_total")
+    assert mt["potencial_soles"] == round(1 * 22.3, 2)
+    assert mt["pct"] == round(100 / 3, 1)

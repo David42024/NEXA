@@ -253,6 +253,8 @@ def get_kpis(db: Session = Depends(get_db), current_user=Depends(require_permiss
         "elegibles_mt": elegibles_mt,
         "conversion_pct": conversion,
         "valor_potencial_soles": round(elegibles_mt * 22.3, 2),
+        "aceptadas": accepted,
+        "total_interacciones": total_interactions,
     }
 
 
@@ -263,6 +265,11 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
 
     Las ventas son ofrecimientos E2E cerrados (stage=result, result=accepted)
     del mes en curso. La meta se lee de la config en caliente (META_VENTAS_MENSUAL).
+
+    Ademas expone el desempeno real de la cartera de cada asesor (via
+    `clients.asesor_id`): interacciones, aceptadas, rechazadas, conversion y
+    friccion. Las interacciones del CSV real no tienen `asesor_id` propio, pero
+    sus clientes si estan en la cartera, asi que se agregan por ese join.
     """
     from datetime import date, datetime
     from sqlalchemy import func
@@ -270,6 +277,22 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
     month_start = datetime.combine(date.today().replace(day=1), datetime.min.time())
     config = get_config(db)
     meta = int(float(config.get("META_VENTAS_MENSUAL", 4)))
+
+    # Estadisticas de cartera (toda la interaccion de los clientes asignados).
+    total_stats = dict(
+        db.query(models.Client.asesor_id, func.count(models.Interaction.id))
+        .join(models.Interaction, models.Interaction.client_id == models.Client.id)
+        .filter(models.Client.asesor_id.isnot(None))
+        .group_by(models.Client.asesor_id)
+        .all()
+    )
+    accepted_stats = dict(
+        db.query(models.Client.asesor_id, func.count(models.Interaction.id))
+        .join(models.Interaction, models.Interaction.client_id == models.Client.id)
+        .filter(models.Client.asesor_id.isnot(None), models.Interaction.result == "accepted")
+        .group_by(models.Client.asesor_id)
+        .all()
+    )
 
     rows = []
     for a in db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all():
@@ -293,6 +316,9 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
         clientes_cartera = (
             db.query(func.count(models.Client.id)).filter(models.Client.asesor_id == a.id).scalar() or 0
         )
+        interacciones = total_stats.get(a.id, 0)
+        aceptadas = accepted_stats.get(a.id, 0)
+        rechazadas = max(interacciones - aceptadas, 0)
         rows.append({
             "id": a.id,
             "name": a.name,
@@ -300,9 +326,64 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
             "ventas": ventas,
             "ofrecimientos": ofrecimientos,
             "clientes_cartera": clientes_cartera,
+            "interacciones": interacciones,
+            "aceptadas": aceptadas,
+            "rechazadas": rechazadas,
+            "conversion_pct": round((aceptadas / interacciones) * 100, 1) if interacciones else None,
+            "friccion_pct": round((rechazadas / interacciones) * 100, 1) if interacciones else None,
             "meta_ventas": meta,
             "cumplido": ventas >= meta,
             "progreso": round((ventas / meta) * 100) if meta else 0,
         })
     rows.sort(key=lambda r: -r["ventas"])
     return {"mes": month_start.strftime("%Y-%m"), "meta_ventas": meta, "asesores": rows}
+
+
+# ---------- Segmentación IA (dashboard supervisor) ----------
+SEGMENTOS_DEF = [
+    ("movistar_total", "Movistar Total", "Clientes listos para la oferta estrella MT"),
+    ("upgrade", "Upgrade", "Clientes para mejora de plan movil"),
+    ("equipo", "Equipo", "Clientes para renovacion/venta de equipo"),
+    ("plan_hogar", "Plan Hogar", "Clientes para internet / TV / fija"),
+]
+
+
+@router.get("/segmentos")
+def get_segmentos(db: Session = Depends(get_db), _user=Depends(require_permission("view_funnel"))):
+    """Segmentacion IA de la base: clientes elegibles por tipo de oferta.
+
+    Barre los perfiles por lotes (portable SQLite/Postgres) contando las 4
+    elegibilidades en una sola pasada, para no disparar 4 escaneos completos.
+    """
+    from sqlalchemy import func
+
+    counts = {key: 0 for key, _, _ in SEGMENTOS_DEF}
+    base = db.query(func.count(models.Client.id)).scalar() or 0
+
+    last_id = None
+    while True:
+        q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
+        if last_id:
+            q = q.filter(models.Client.id > last_id)
+        rows = q.limit(2000).all()
+        if not rows:
+            break
+        for _, profile in rows:
+            elig = (profile or {}).get("elegibilidad", {})
+            for key in counts:
+                if elig.get(key):
+                    counts[key] += 1
+        last_id = rows[-1][0]
+
+    segmentos = [
+        {
+            "key": key,
+            "label": label,
+            "descripcion": desc,
+            "count": counts[key],
+            "pct": round((counts[key] / base) * 100, 1) if base else 0,
+            "potencial_soles": round(counts[key] * 22.3, 2),
+        }
+        for key, label, desc in SEGMENTOS_DEF
+    ]
+    return {"base": base, "segmentos": segmentos}
