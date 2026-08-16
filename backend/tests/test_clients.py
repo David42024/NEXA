@@ -1,5 +1,38 @@
 """Tests del modulo de clientes (busqueda, perfil, historial)."""
 from tests.conftest import login, auth
+from app import models
+
+
+def test_lista_asesor_filtra_y_pagina_por_segmento_de_su_cartera(client, session):
+    """/api/clients para un asesor acota a SU cartera y trae chips + filtro."""
+    asesor = session.query(models.User).filter_by(email="asesor@nexa.demo").first()
+    for c in session.query(models.Client).all():
+        c.asesor_id = asesor.id
+    session.add(models.Client(
+        id="C00009", name="Riesgo Perez", document_last4="0000", phone_last4="0000",
+        district="Ate", asesor_id=asesor.id,
+        profile={
+            "servicio": {"tipo": "Postpago"},
+            "consumo": {"datos_gb": 5, "app_uso": "Bajo"},
+            "hogar": {"tiene_internet": False},
+            "facturacion": {"dias_mora_prom": 12},
+            "comportamiento": {"n_reclamos": 2},
+            "elegibilidad": {"movistar_total": False, "upgrade": False, "equipo": False, "plan_hogar": True},
+        },
+    ))
+    session.commit()
+
+    token = login(client)
+    headers = auth(token)
+    todo = client.get("/api/clients?page=1&page_size=2", headers=headers).json()
+    assert todo["total"] == 4
+    assert len(todo["results"]) == 2
+    segs = {s["id"]: s["count"] for s in todo["segmentos"]}
+    assert segs["Todos"] == 4 and segs["Oro"] == 1 and segs["Alerta"] == 1
+
+    alerta = client.get("/api/clients?segmento=Alerta", headers=headers).json()
+    assert alerta["total"] == 1
+    assert [c["id"] for c in alerta["results"]] == ["C00009"]
 
 
 def test_busqueda_por_id_exacto(client):

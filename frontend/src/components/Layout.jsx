@@ -45,7 +45,7 @@ export default function Layout({ children }) {
 
       {/* Sidebar: drawer en móvil, fija en desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white text-navy-900 transition-transform duration-200 dark:border-white/10 dark:bg-navy-900 dark:text-white lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200/80 bg-white text-navy-900 transition-transform duration-200 dark:border-white/10 dark:bg-navy-900 dark:text-white lg:sticky lg:top-0 lg:h-screen lg:inset-auto lg:translate-x-0 ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >

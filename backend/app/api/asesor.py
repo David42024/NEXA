@@ -1,5 +1,4 @@
 """Progreso comercial del asesor en sesion (ventas de hoy/semana/mes vs metas)."""
-import time
 from datetime import date, datetime, timedelta
 from sqlalchemy import func
 from fastapi import APIRouter, Depends, Query
@@ -7,52 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app import models, schemas
-from app.config import settings
 from app.security import require_any_permission
 from app.services.config_service import get_metas
-from app.api.clients import _nbo_top, _mejor_hora, _llamable_ahora, _is_elegible, _plan_actual
+from app.api.clients import SEGMENTOS, cartera_puntuada
 
 router = APIRouter(prefix="/api/asesor", tags=["asesor"])
-
-# Segmentos estratégicos del asesor (adaptados del reference gerencial).
-_SEGMENTOS = [
-    ("Todos", "Todos"),
-    ("Oro", "Oro Convergente"),
-    ("Alerta", "Alerta Roja"),
-    ("Gigas", "Hambrientos de Datos"),
-    ("Digital", "Nativos Digitales"),
-]
-
-# Cache en memoria de la cartera puntuada por asesor. El score NBO depende solo
-# del perfil (estático), así que paginar un segmento no vuelve a puntuar a los
-# ~1k clientes en cada request: la primera petición puntúa y las siguientes
-# páginas reusan el mismo orden. Se desactiva en tests para que sigan
-# deterministas (cada test usa su propia BD en memoria).
-_CARTERA_CACHE: dict = {}
-_CARTERA_CACHE_TTL = 300
-_CARTERA_CACHE_MAX = 50
-
-
-def _segmento_cliente(profile: dict) -> str | None:
-    """Clasifica un cliente en su segmento estratégico principal.
-
-    El orden es deliberado: el riesgo de churn (Alerta) manda, luego la
-    convergencia (Oro), el consumo de datos (Gigas) y por último el uso de la
-    app (Digital). Los clientes sin ninguna señal quedan sin segmento (solo
-    aparecen bajo 'Todos').
-    """
-    fact = profile.get("facturacion") or {}
-    comp = profile.get("comportamiento") or {}
-    consumo = profile.get("consumo") or {}
-    if (fact.get("dias_mora_prom") or 0) >= 5 or (comp.get("n_reclamos") or 0) >= 1:
-        return "Alerta"
-    if (profile.get("hogar") or {}).get("tiene_internet"):
-        return "Oro"
-    if (consumo.get("datos_gb") or 0) >= 20:
-        return "Gigas"
-    if consumo.get("app_uso") == "Alto":
-        return "Digital"
-    return None
 
 
 def _count_ventas(db: Session, asesor_id: int, desde: datetime) -> int:
@@ -106,45 +64,6 @@ def get_mi_progreso(
     }
 
 
-def _cartera_puntuada(db: Session, asesor_id: int) -> list:
-    """Cartera completa del asesor puntuada (NBO) y ordenada por score desc."""
-    if settings.ENVIRONMENT != "test":
-        now = time.time()
-        hit = _CARTERA_CACHE.get(asesor_id)
-        if hit and now - hit[0] < _CARTERA_CACHE_TTL:
-            return hit[1]
-
-    cartera = (
-        db.query(models.Client)
-        .filter(models.Client.asesor_id == asesor_id)
-        .all()
-    )
-    clientes = []
-    for c in cartera:
-        mejor_hora = _mejor_hora(c.profile)
-        score, top_offer, motivo = _nbo_top(c)
-        clientes.append(schemas.ClientSummary(
-            id=c.id,
-            name=c.name,
-            district=c.district,
-            segmento=_segmento_cliente(c.profile),
-            elegible=_is_elegible(c.profile),
-            score=score,
-            top_offer=top_offer,
-            motivo=motivo,
-            plan_actual=_plan_actual(c.profile),
-            mejor_hora=mejor_hora,
-            llamable_ahora=_llamable_ahora(mejor_hora),
-        ))
-    clientes.sort(key=lambda s: s.score, reverse=True)
-
-    if settings.ENVIRONMENT != "test":
-        if len(_CARTERA_CACHE) >= _CARTERA_CACHE_MAX:
-            _CARTERA_CACHE.pop(next(iter(_CARTERA_CACHE)))
-        _CARTERA_CACHE[asesor_id] = (time.time(), clientes)
-    return clientes
-
-
 @router.get("/priorizados", response_model=schemas.AsesorPriorizadosResponse)
 def get_mis_clientes_priorizados(
     segmento: str = Query("Todos"),
@@ -162,9 +81,9 @@ def get_mis_clientes_priorizados(
     por asesor (los scores solo dependen del perfil), así que avanzar de página
     no repite el scoring.
     """
-    puntuados = _cartera_puntuada(db, current_user.id)
+    puntuados = cartera_puntuada(db, current_user.id)
 
-    counts = {sid: 0 for sid, _label in _SEGMENTOS if sid != "Todos"}
+    counts = {sid: 0 for sid, _label in SEGMENTOS if sid != "Todos"}
     for s in puntuados:
         if s.segmento:
             counts[s.segmento] = counts.get(s.segmento, 0) + 1
@@ -177,7 +96,7 @@ def get_mis_clientes_priorizados(
 
     segmentos = [
         schemas.SegmentoCount(id=sid, label=label, count=counts[sid])
-        for sid, label in _SEGMENTOS
+        for sid, label in SEGMENTOS
     ]
     return schemas.AsesorPriorizadosResponse(
         segmentos=segmentos, total=total, page=page, page_size=page_size, clientes=clientes

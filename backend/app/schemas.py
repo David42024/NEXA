@@ -48,17 +48,18 @@ class ClientSummary(BaseModel):
     llamable_ahora: bool = False
 
 
+class SegmentoCount(BaseModel):
+    id: str
+    label: str
+    count: int
+
+
 class ClientListResponse(BaseModel):
     total: int
     page: int
     page_size: int
     results: List[ClientSummary]
-
-
-class SegmentoCount(BaseModel):
-    id: str
-    label: str
-    count: int
+    segmentos: List[SegmentoCount] = []
 
 
 class AsesorPriorizadosResponse(BaseModel):

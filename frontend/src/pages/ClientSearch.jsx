@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../utils/api'
 import ScoreBadge from '../components/ScoreBadge.jsx'
 import ScoreLegend from '../components/ScoreLegend.jsx'
+import SegmentChips, { SEGMENT_DEFS } from '../components/SegmentChips.jsx'
 
 const PAGE_SIZE = 10
 
@@ -32,6 +33,8 @@ export default function ClientSearch() {
   const [total, setTotal] = useState(0)
   const [listLoading, setListLoading] = useState(false)
   const [soloAhora, setSoloAhora] = useState(false)
+  const [segmentos, setSegmentos] = useState([])
+  const [segFiltro, setSegFiltro] = useState('Todos')
   const [progreso, setProgreso] = useState(null)
   const reqId = useRef(0)
   const navigate = useNavigate()
@@ -42,18 +45,24 @@ export default function ClientSearch() {
     api.get('/api/asesor/progreso').then(({ data }) => setProgreso(data)).catch(() => null)
   }, [])
 
-  async function loadList(p) {
+  async function loadList(p, seg = segFiltro) {
     setListLoading(true)
     try {
       const { data } = await api.get(
-        `/api/clients?page=${p}&page_size=${PAGE_SIZE}${soloAhora ? '&solo_ahora=true' : ''}`
+        `/api/clients?segmento=${encodeURIComponent(seg)}&page=${p}&page_size=${PAGE_SIZE}${soloAhora ? '&solo_ahora=true' : ''}`
       )
       setList(data.results)
       setTotal(data.total)
       setPage(data.page)
+      setSegmentos(data.segmentos || [])
     } finally {
       setListLoading(false)
     }
+  }
+
+  function handleSegClick(segId) {
+    setSegFiltro(segId)
+    loadList(1, segId)
   }
 
   async function fetchSearch(q) {
@@ -208,6 +217,9 @@ export default function ClientSearch() {
 
       {!searchMode && (
         <>
+          {segmentos.length > 0 && (
+            <SegmentChips segmentos={segmentos} active={segFiltro} onSelect={handleSegClick} />
+          )}
           <p className="mb-2 text-xs text-slate-400">
             Todos los clientes ordenados por probabilidad de aceptación (motor NBO)
           </p>
@@ -311,6 +323,9 @@ function ClientRow({ c, onSelect }) {
         </div>
       </div>
       <div className="flex items-center gap-2">
+        {c.segmento && SEGMENT_DEFS[c.segmento] && (
+          <span className={`badge ${SEGMENT_DEFS[c.segmento].pill}`}>{SEGMENT_DEFS[c.segmento].label}</span>
+        )}
         {c.llamable_ahora && (
           <span
             className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
