@@ -30,6 +30,8 @@ class Client(Base):
     phone_last4 = Column(String(4))
     district = Column(String(50))
     profile = Column(JSON, nullable=False)  # todo el detalle: consumo, hogar, facturacion, etc.
+    # Cartera comercial: asesor asignado a este cliente (via csv_loader -> asesores.csv).
+    asesor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 

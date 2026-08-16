@@ -23,6 +23,12 @@ OFR_0000002,CLI_000002,OFE_013,2026-02-21,Digital,rechazada,mal_momento,False,co
 OFR_0000003,CLI_000003,OFE_004,2026-02-16,Tienda,aceptada,no_aplica,False,contactado,audio_llamada,postpago,94,True,False,Plan Movil Premium 4,plan_movil,False,143
 """
 
+ASESORES_SAMPLE = """asesor_id,nombre,email,telefono,zona
+A001,Ana Torres,asesor001@nexa.demo,943321819,Lima Centro
+A002,Carmen Ruiz,asesor002@nexa.demo,933890838,Lima Sur
+A003,Jorge Poma,asesor003@nexa.demo,940265423,Callao
+"""
+
 
 def _write_tmp(path, content):
     path.write_text(content, encoding="utf-8")
@@ -108,6 +114,60 @@ def test_build_context_incluye_datos_reales(tmp_path, session):
     assert ctx["tipo_cliente"] == "Postpago"
 
 
+def test_load_asesores_crea_usuarios_y_es_idempotente(tmp_path, session):
+    p = _write_asesores(tmp_path)
+    n = csv_loader.load_asesores(session, p)
+    assert n == 3
+    emails = {u.email for u in session.query(models.User).filter(models.User.role == "asesor").all()}
+    assert {"asesor001@nexa.demo", "asesor002@nexa.demo", "asesor003@nexa.demo"} <= emails
+    a1 = session.query(models.User).filter(models.User.email == "asesor001@nexa.demo").first()
+    assert a1 is not None
+    assert a1.role == "asesor"
+    assert a1.name == "Ana Torres"
+    # Idempotente
+    assert csv_loader.load_asesores(session, p) == 0
+
+
+def test_load_asesores_con_palabras_clave_no_duplica(tmp_path, session):
+    p = _write_asesores(tmp_path)
+    assert csv_loader.load_asesores(session, p) == 3
+    assert csv_loader.load_asesores(session, p) == 0
+    total = session.query(models.User).filter(models.User.email.like("asesor00%@nexa.demo")).count()
+    assert total == 3
+
+
+def test_assign_cartera_asigna_todos_los_clientes_y_es_idempotente(tmp_path, session):
+    csv_loader.load_offers(session, _write_offers(tmp_path))
+    csv_loader.load_clients(session, _write_clients(tmp_path))
+    csv_loader.load_asesores(session, _write_asesores(tmp_path))
+    # conftest siembra 3 clientes demo (C*) + 3 CLI del CSV = 6 en total.
+    total_clientes = session.query(models.Client).count()
+    assert total_clientes == 6
+
+    assigned = csv_loader.assign_cartera(session, clientes_por_asesor=1)
+    assert assigned == total_clientes
+    assert session.query(models.Client).filter(models.Client.asesor_id.is_(None)).count() == 0
+    assert session.query(models.Client).filter(models.Client.asesor_id.isnot(None)).count() == total_clientes
+    # El primer cliente cayo en un asesor real (A001 o el demo, el de menor id).
+    c1 = session.query(models.Client).filter(models.Client.id == "CLI_000001").first()
+    assert c1.asesor_id is not None
+    # Idempotente
+    assert csv_loader.assign_cartera(session, clientes_por_asesor=1) == 0
+
+
+def test_assign_cartera_respeta_tamano_por_asesor(tmp_path, session):
+    csv_loader.load_offers(session, _write_offers(tmp_path))
+    csv_loader.load_clients(session, _write_clients(tmp_path))
+    csv_loader.load_asesores(session, _write_asesores(tmp_path))
+    # 6 clientes / 2 por asesor -> ningun asesor supera el tope.
+    csv_loader.assign_cartera(session, clientes_por_asesor=2)
+    counts = {}
+    for (aid,) in session.query(models.Client.asesor_id).all():
+        counts[aid] = counts.get(aid, 0) + 1
+    assert sum(counts.values()) == 6
+    assert max(counts.values()) <= 2
+
+
 def _write_offers(tmp_path):
     p = tmp_path / "offers.csv"
     _write_tmp(p, OFFERS_SAMPLE)
@@ -123,4 +183,10 @@ def _write_clients(tmp_path):
 def _write_offerings(tmp_path):
     p = tmp_path / "offerings.csv"
     _write_tmp(p, OFFERINGS_SAMPLE)
+    return p
+
+
+def _write_asesores(tmp_path):
+    p = tmp_path / "asesores.csv"
+    _write_tmp(p, ASESORES_SAMPLE)
     return p

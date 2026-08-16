@@ -1,0 +1,101 @@
+asesor_id,nombre,email,telefono,zona
+A001,Valeria Ramos Ramirez,asesor001@nexa.demo,943321819,Lima Centro
+A002,Carmen Ramirez Castillo,asesor002@nexa.demo,933890838,Lima Centro
+A003,Claudia Palacios Villanueva,asesor003@nexa.demo,940265423,Lima Este
+A004,Rosa Castillo Vega,asesor004@nexa.demo,915594078,Lima Norte
+A005,Diana Castillo Benavides,asesor005@nexa.demo,949593103,Lima Este
+A006,Pedro Espinoza Vasquez,asesor006@nexa.demo,964752553,Provincias
+A007,Ricardo Zapata Pacheco,asesor007@nexa.demo,919283276,Lima Este
+A008,Valeria Zapata Benavides,asesor008@nexa.demo,935030564,Lima Norte
+A009,Diego Tapia Uribe,asesor009@nexa.demo,953767242,Lima Sur
+A010,Eduardo Benavides Leon,asesor010@nexa.demo,949696532,Callao
+A011,Hugo Castillo Aguirre,asesor011@nexa.demo,901226916,Lima Centro
+A012,Susana Diaz Figueroa,asesor012@nexa.demo,948018451,Lima Este
+A013,Marco Castro Diaz,asesor013@nexa.demo,904828148,Callao
+A014,Elena Mendoza Lopez,asesor014@nexa.demo,928809570,Lima Norte
+A015,Gustavo Aguilar Paredes,asesor015@nexa.demo,903911718,Lima Sur
+A016,Lucia Quinteros Nunez,asesor016@nexa.demo,982489638,Provincias
+A017,Tania Chavez Uribe,asesor017@nexa.demo,946578713,Lima Sur
+A018,Maria Silva Ramirez,asesor018@nexa.demo,998393010,Lima Sur
+A019,Maria Quispe Silva,asesor019@nexa.demo,918347382,Provincias
+A020,Gabriela Tapia Nunez,asesor020@nexa.demo,937631165,Lima Centro
+A021,Patricia Diaz Beltran,asesor021@nexa.demo,901065133,Lima Sur
+A022,Fiorella Palacios Salazar,asesor022@nexa.demo,962473178,Lima Norte
+A023,Jorge Morales Leon,asesor023@nexa.demo,901326773,Lima Centro
+A024,Jorge Castro Vega,asesor024@nexa.demo,906474687,Lima Sur
+A025,Elena Garcia Cardenas,asesor025@nexa.demo,909805009,Lima Centro
+A026,Melissa Figueroa Castro,asesor026@nexa.demo,908121913,Lima Centro
+A027,Carlos Tapia Paredes,asesor027@nexa.demo,999091699,Callao
+A028,Karla Cruz Cardenas,asesor028@nexa.demo,953462475,Lima Norte
+A029,Ana Diaz Sotelo,asesor029@nexa.demo,991183842,Lima Este
+A030,Maria Paredes Lopez,asesor030@nexa.demo,942784980,Provincias
+A031,Ramon Aguilar Quinteros,asesor031@nexa.demo,912411824,Lima Este
+A032,Susana Cardenas Uribe,asesor032@nexa.demo,953487401,Provincias
+A033,Marco Reyes Quispe,asesor033@nexa.demo,905242786,Callao
+A034,Ana Ramos Rojas,asesor034@nexa.demo,928059826,Lima Sur
+A035,Carmen Aguilar Lopez,asesor035@nexa.demo,905331586,Callao
+A036,Eduardo Mendoza Paredes,asesor036@nexa.demo,922602563,Lima Este
+A037,Paola Zapata Vasquez,asesor037@nexa.demo,960733754,Lima Sur
+A038,Claudia Ramirez Quinteros,asesor038@nexa.demo,936541458,Lima Centro
+A039,Alberto Leon Silva,asesor039@nexa.demo,901429401,Callao
+A040,Marco Mamani Beltran,asesor040@nexa.demo,956981693,Lima Este
+A041,Carmen Uribe Moreno,asesor041@nexa.demo,908835615,Callao
+A042,Karla Quinteros Ramos,asesor042@nexa.demo,948465648,Lima Sur
+A043,Elena Contreras Quinteros,asesor043@nexa.demo,962994680,Lima Este
+A044,Sandra Cardenas Moreno,asesor044@nexa.demo,999577738,Lima Centro
+A045,Eduardo Castro Quinteros,asesor045@nexa.demo,914895134,Lima Sur
+A046,Elena Mendoza Ramirez,asesor046@nexa.demo,903791769,Lima Sur
+A047,Christian Zapata Vega,asesor047@nexa.demo,976320163,Lima Sur
+A048,Tania Figueroa Diaz,asesor048@nexa.demo,908317278,Callao
+A049,Susana Gutierrez Aguirre,asesor049@nexa.demo,979868727,Lima Centro
+A050,Veronica Aguirre Paredes,asesor050@nexa.demo,948734714,Lima Sur
+A051,Ricardo Silva Gutierrez,asesor051@nexa.demo,981223623,Lima Norte
+A052,Patricia Contreras Silva,asesor052@nexa.demo,987603669,Provincias
+A053,Luis Aguirre Tapia,asesor053@nexa.demo,967054668,Provincias
+A054,Eduardo Leon Caceres,asesor054@nexa.demo,937346706,Lima Este
+A055,Monica Pacheco Ortiz,asesor055@nexa.demo,927298069,Callao
+A056,Monica Ramirez Castillo,asesor056@nexa.demo,962720465,Lima Sur
+A057,Ivan Gutierrez Silva,asesor057@nexa.demo,964641708,Lima Norte
+A058,Natalia Espinoza Morales,asesor058@nexa.demo,910033092,Lima Sur
+A059,Lucia Nunez Quinteros,asesor059@nexa.demo,919374529,Callao
+A060,Eduardo Uribe Ramos,asesor060@nexa.demo,924190496,Lima Centro
+A061,Christian Chavez Rojas,asesor061@nexa.demo,993149190,Lima Este
+A062,Fiorella Moreno Quinteros,asesor062@nexa.demo,951850671,Lima Centro
+A063,Gustavo Bustamante Diaz,asesor063@nexa.demo,926284987,Lima Centro
+A064,Marco Beltran Villanueva,asesor064@nexa.demo,945314737,Callao
+A065,Ernesto Quinteros Vega,asesor065@nexa.demo,950752735,Lima Este
+A066,Oscar Reyes Caceres,asesor066@nexa.demo,948083136,Lima Centro
+A067,Ramon Aguirre Paredes,asesor067@nexa.demo,977701436,Provincias
+A068,Fernando Aguilar Quinteros,asesor068@nexa.demo,995788568,Lima Este
+A069,Natalia Zapata Diaz,asesor069@nexa.demo,944431351,Provincias
+A070,Fiorella Aguirre Zapata,asesor070@nexa.demo,923374989,Lima Este
+A071,Rosa Chavez Garcia,asesor071@nexa.demo,935240824,Lima Norte
+A072,Jorge Benavides Garcia,asesor072@nexa.demo,927109477,Lima Centro
+A073,Oscar Huaman Flores,asesor073@nexa.demo,947116719,Provincias
+A074,Alberto Flores Mendoza,asesor074@nexa.demo,929413186,Callao
+A075,Susana Sotelo Espinoza,asesor075@nexa.demo,986774964,Callao
+A076,Ernesto Flores Sotelo,asesor076@nexa.demo,913341232,Callao
+A077,Maria Castro Torres,asesor077@nexa.demo,967974034,Provincias
+A078,Sandra Zapata Diaz,asesor078@nexa.demo,913493618,Lima Sur
+A079,Raul Mendoza Reyes,asesor079@nexa.demo,921024994,Lima Centro
+A080,Carlos Diaz Zapata,asesor080@nexa.demo,946488771,Callao
+A081,Carmen Moreno Rios,asesor081@nexa.demo,959401399,Lima Norte
+A082,Jacqueline Pacheco Reyes,asesor082@nexa.demo,990278742,Callao
+A083,Marco Bustamante Campos,asesor083@nexa.demo,917565512,Lima Este
+A084,Patricia Zapata Campos,asesor084@nexa.demo,946807154,Lima Este
+A085,Carlos Solis Ortiz,asesor085@nexa.demo,980876038,Lima Este
+A086,Ernesto Aguirre Campos,asesor086@nexa.demo,970348247,Provincias
+A087,Hugo Ramos Ramirez,asesor087@nexa.demo,993248086,Lima Norte
+A088,Claudia Ramos Diaz,asesor088@nexa.demo,912748467,Lima Centro
+A089,Fernando Diaz Benavides,asesor089@nexa.demo,926398214,Lima Centro
+A090,Oscar Rosales Reyes,asesor090@nexa.demo,904499727,Callao
+A091,Andrea Mamani Silva,asesor091@nexa.demo,988675339,Lima Centro
+A092,Claudia Solis Contreras,asesor092@nexa.demo,905766270,Lima Sur
+A093,Melissa Villanueva Silva,asesor093@nexa.demo,917187026,Provincias
+A094,Miguel Rojas Nunez,asesor094@nexa.demo,945961586,Lima Este
+A095,Valeria Uribe Aguirre,asesor095@nexa.demo,978091343,Provincias
+A096,Pedro Moreno Vasquez,asesor096@nexa.demo,917240050,Lima Este
+A097,Natalia Lopez Moreno,asesor097@nexa.demo,923869222,Lima Norte
+A098,Ernesto Vega Sotelo,asesor098@nexa.demo,937923747,Lima Este
+A099,Monica Torres Diaz,asesor099@nexa.demo,948217594,Provincias
+A100,Marco Zapata Cruz,asesor100@nexa.demo,974367136,Callao

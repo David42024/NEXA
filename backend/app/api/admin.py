@@ -262,12 +262,16 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
             .scalar()
             or 0
         )
+        clientes_cartera = (
+            db.query(func.count(models.Client.id)).filter(models.Client.asesor_id == a.id).scalar() or 0
+        )
         rows.append({
             "id": a.id,
             "name": a.name,
             "email": a.email,
             "ventas": ventas,
             "ofrecimientos": ofrecimientos,
+            "clientes_cartera": clientes_cartera,
             "meta_ventas": meta,
             "cumplido": ventas >= meta,
             "progreso": round((ventas / meta) * 100) if meta else 0,

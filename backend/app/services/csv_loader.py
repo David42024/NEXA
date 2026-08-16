@@ -10,6 +10,9 @@ schema ni el seed demo:
 - `historial_campanias_clean.csv`     -> tabla `offerings` (E2E) + `interactions` +
   `recommendations` + `funnel_daily` + `historial_campanias`/`historial_ofertas`
   en el perfil de cada cliente.
+- `asesores.csv`                      -> tabla `users` (rol asesor) + reparto de la
+  cartera: cada cliente queda asignado a un asesor (`clients.asesor_id`), con un
+  numero acotado de clientes por asesor (ej. 100 asesores x 1,000 clientes).
 
 Idempotente: si el primer cliente real (CLI_000001) o la primera oferta real
 (OFE_001) ya existen, se omite la carga correspondiente.
@@ -19,19 +22,22 @@ Ejecucion:
 """
 import csv
 import copy
+import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import inspect
+from sqlalchemy import func, inspect
 
 from app.database import engine, SessionLocal
 from app import models
+from app.security import hash_password
 
 # Rutas relativas a este archivo: backend/csvs/
 CSV_DIR = Path(__file__).resolve().parents[2] / "csvs"
 OFFERS_CSV = CSV_DIR / "catalogo_ofertas_entrega_clean.csv"
 CLIENTS_CSV = CSV_DIR / "dataset_clientes_clean.csv"
 OFFERINGS_CSV = CSV_DIR / "historial_campanias_clean.csv"
+ASESORES_CSV = CSV_DIR / "asesores.csv"
 
 # Canales del CSV (legacy) -> canales de contacto reales del E2E.
 CANAL_MAP = {"Digital": "App", "Tienda": "WhatsApp", "Call_In": "Llamada", "Call_Out": "Llamada"}
@@ -307,6 +313,86 @@ def load_clients(db, path: Path = None) -> int:
     return count
 
 
+# ---------------------------------------------------------------- asesores + cartera
+# Contrasena por defecto para los asesores del CSV (demo). El admin puede cambiarla.
+ASESOR_DEFAULT_PASSWORD = "asesor123"
+
+
+def load_asesores(db, path: Path = None, password: str = ASESOR_DEFAULT_PASSWORD) -> int:
+    """Carga los asesores reales (asesores.csv) a la tabla users. Idempotente.
+
+    Cada fila crea un usuario con rol `asesor`; el id externo del CSV (A001...)
+    no tiene columna propia en users, pero el email `asesor###@nexa.demo` es la
+    clave de idempotencia.
+    """
+    path = path or ASESORES_CSV
+    if not path.exists():
+        print(f"[csv_loader] No existe {path.name}; se omite la carga de asesores.")
+        return 0
+    if db.query(models.User).filter(models.User.email == "asesor001@nexa.demo").first():
+        print("[csv_loader] Asesores del CSV ya cargados; se omite.")
+        return 0
+
+    rows = []
+    seen = set()
+    with open(path, encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            email = (r.get("email") or "").strip().lower()
+            if not email or email in seen:
+                continue
+            seen.add(email)
+            rows.append(models.User(
+                email=email,
+                password_hash=hash_password(password),
+                role="asesor",
+                name=(r.get("nombre") or "").strip() or email.split("@")[0],
+            ))
+    db.add_all(rows)
+    db.commit()
+    print(f"[csv_loader] Asesores cargados: {len(rows)}")
+    return len(rows)
+
+
+def assign_cartera(db, clientes_por_asesor: int = None) -> int:
+    """Reparte los clientes entre los asesores (cartera). Idempotente.
+
+    Se asigna de a rangos contiguos ordenando por id: con 100.000 clientes y
+    100 asesores quedan ~1.000 clientes por asesor. Si `clientes_por_asesor` se
+    omite, se reparte equilibrado (ceil(total / n_asesores)). La iteracion usa
+    barrido por lotes (keyset pagination) para no cargar los 100k a memoria.
+    """
+    asesores = db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all()
+    n = len(asesores)
+    if n == 0:
+        print("[csv_loader] No hay asesores; se omite el reparto de cartera.")
+        return 0
+    if db.query(models.Client).filter(models.Client.asesor_id.isnot(None)).first():
+        print("[csv_loader] Cartera ya asignada; se omite.")
+        return 0
+
+    total = db.query(func.count(models.Client.id)).scalar() or 0
+    per = int(clientes_por_asesor) if clientes_por_asesor else max(1, math.ceil(total / n))
+
+    assigned = 0
+    idx = 0
+    last_id = None
+    while True:
+        q = db.query(models.Client).order_by(models.Client.id)
+        if last_id:
+            q = q.filter(models.Client.id > last_id)
+        batch = q.limit(BATCH).all()
+        if not batch:
+            break
+        for c in batch:
+            c.asesor_id = asesores[min(idx // per, n - 1)].id
+            idx += 1
+            assigned += 1
+        last_id = batch[-1].id
+        db.commit()
+    print(f"[csv_loader] Cartera asignada: {assigned} clientes en {n} asesores (~{per} c/u).")
+    return assigned
+
+
 # ---------------------------------------------------------------- ofrecimientos
 def _offering_fields(row: dict, offer_id_by_code: dict):
     """Traduce una fila de historial_campanias_clean.csv a los campos del Offering."""
@@ -540,7 +626,7 @@ def load_offerings(db, path: Path = None) -> dict:
 
 
 def seed_csv(db=None):
-    """Orquesta la carga de los 3 CSV. Idempotente."""
+    """Orquesta la carga de los CSV. Idempotente."""
     _require_schema()
     own_session = db is None
     if own_session:
@@ -549,6 +635,8 @@ def seed_csv(db=None):
         load_offers(db)
         load_clients(db)
         load_offerings(db)
+        load_asesores(db)
+        assign_cartera(db)
     finally:
         if own_session:
             db.close()
