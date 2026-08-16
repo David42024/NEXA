@@ -96,7 +96,7 @@ export default function Funnel() {
       <p className="label-eyebrow">Supervisión</p>
       <h1 className="font-display font-bold text-2xl text-navy-900 mb-6">Funnel de conversión</h1>
 
-      <div className="flex gap-2 mb-6">
+      <div className="flex flex-wrap gap-2 mb-6">
         {PERIODS.map((p) => (
           <button
             key={p.key}
@@ -110,7 +110,7 @@ export default function Funnel() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
         {loading || !funnel ? (
           <p className="text-sm text-slate-400 col-span-5">Cargando…</p>
         ) : (
@@ -176,7 +176,7 @@ export default function Funnel() {
       </div>
 
       {breakdown && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           <BreakdownCard title="Ofertas más aceptadas" items={breakdown.top_offers.map(o => ({ label: o.name, value: o.count }))} tip={BREAKDOWN_TIPS['Ofertas más aceptadas']} />
           <BreakdownCard title="Canales más efectivos" items={breakdown.channels.map(c => ({ label: c.channel, value: c.count }))} tip={BREAKDOWN_TIPS['Canales más efectivos']} />
           <BreakdownCard title="Motivos de rechazo" items={breakdown.rejection_reasons.map(r => ({ label: r.reason, value: r.count }))} tip={BREAKDOWN_TIPS['Motivos de rechazo']} />
