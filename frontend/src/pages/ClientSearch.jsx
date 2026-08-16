@@ -136,7 +136,7 @@ export default function ClientSearch() {
 
   return (
     <div>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="label-eyebrow">Clientes</p>
           <h1 className="font-display font-bold text-2xl text-navy-900 mb-6">Buscar cliente</h1>

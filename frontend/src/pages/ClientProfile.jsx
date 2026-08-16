@@ -336,7 +336,7 @@ export default function ClientProfile() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <button onClick={() => navigate('/clientes')} className="flex items-center gap-1.5 text-sm font-medium text-slate-500 transition-colors hover:text-cyan-600">
           <ArrowLeft className="h-4 w-4" />
           Volver a búsqueda

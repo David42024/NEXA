@@ -56,7 +56,7 @@ function EvidencePicker({ value, disabled, onChange }) {
       {open && (
         <ul
           role="listbox"
-          className="absolute bottom-full right-0 z-30 mb-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-navy-800"
+          className="absolute bottom-full right-0 z-30 mb-2 w-64 max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-white/10 dark:bg-navy-800"
         >
           {EVIDENCE_OPTIONS.map((o) => {
             const Icon = o.icon

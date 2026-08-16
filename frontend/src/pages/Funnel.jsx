@@ -137,7 +137,7 @@ export default function Funnel() {
       </div>
 
       {!loading && funnel && (
-        <div className="card relative group p-5 mb-6 flex items-center justify-between">
+        <div className="card relative group p-5 mb-6 flex flex-wrap items-center justify-between gap-2">
           <Tip text="Ventas cerradas (aceptadas) divididas entre clientes analizados del periodo." />
           <span className="text-sm text-slate-500">Conversión total del periodo</span>
           <span className="font-display font-bold text-xl text-cyan-600">{funnel.conversion_rate}%</span>

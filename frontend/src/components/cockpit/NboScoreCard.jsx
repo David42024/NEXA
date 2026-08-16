@@ -22,8 +22,8 @@ export default function NboScoreCard({ percent, tone, offer, shapValues }) {
       </div>
       <p className="mt-0.5 text-xs text-slate-400">Probabilidad estimada de aceptación de la mejor oferta</p>
 
-      <div className="mt-3 flex items-center gap-5">
-        <div className="relative shrink-0" style={{ width: 240, height: 210 }}>
+      <div className="mt-3 flex flex-col items-center gap-5 sm:flex-row sm:items-center">
+        <div className="relative h-[180px] w-[200px] shrink-0 sm:h-[210px] sm:w-[240px]">
           <ResponsiveContainer width="100%" height="100%">
             <RadialBarChart
               cx="50%"
@@ -51,7 +51,7 @@ export default function NboScoreCard({ percent, tone, offer, shapValues }) {
           </div>
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 text-center sm:text-left">
           <p className={`text-sm font-semibold ${percent == null ? 'text-slate-400' : label.cls}`}>
             {percent == null ? 'Genera una recomendación' : label.text}
           </p>
