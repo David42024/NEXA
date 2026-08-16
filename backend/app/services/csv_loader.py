@@ -67,6 +67,10 @@ OFFER_TIPO_PRIORITY = {
 BATCH = 2000
 HISTORIAL_MAX = 6
 
+# Limite de ofrecimientos a cargar desde el CSV real (300k+ filas). Se acota a
+# 50k para no agotar la cuota de transferencia ni la RAM de la BD gratuita.
+OFFERINGS_LIMIT = 50000
+
 
 def _require_schema():
     inspector = inspect(engine)
@@ -420,6 +424,9 @@ def load_offerings(db, path: Path = None) -> dict:
     pending_accept = []  # (rec, campos de interaction) -> flush por lote
     with open(path, encoding="utf-8") as fh:
         for row in csv.DictReader(fh):
+            if count >= OFFERINGS_LIMIT:
+                print(f"[csv_loader] Limite de ofrecimientos alcanzado: {OFFERINGS_LIMIT}.")
+                break
             ext_id = row.get("ofrecimiento_id", "")
             if ext_id and ext_id in existing:
                 continue
