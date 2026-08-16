@@ -18,18 +18,21 @@ from app.services.config_service import (
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def _count_elegibles_mt(db) -> int:
+def _count_elegibles_mt(db, asesor_id: int = None) -> int:
     """Cuenta clientes elegibles a Movistar Total sin cargar todo a memoria.
 
     Con 100k+ clientes un `.all()` con los perfiles JSON revienta la RAM de
     instancias pequeñas (Render 512MB). Se barre por lotes trayendo solo la
-    columna `profile` (portable SQLite/Postgres).
+    columna `profile` (portable SQLite/Postgres). Con `asesor_id` solo cuenta
+    la cartera de ese asesor.
     """
     count = 0
     last_id = None
     BATCH = 2000
     while True:
         q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
+        if asesor_id is not None:
+            q = q.filter(models.Client.asesor_id == asesor_id)
         if last_id:
             q = q.filter(models.Client.id > last_id)
         rows = q.limit(BATCH).all()
@@ -208,16 +211,41 @@ def get_system_logs(
 
 
 @router.get("/kpis")
-def get_kpis(db: Session = Depends(get_db), _user=Depends(require_permission("view_dashboard"))):
-    """KPIs principales para el dashboard de asesor/supervisor."""
+def get_kpis(db: Session = Depends(get_db), current_user=Depends(require_permission("view_dashboard"))):
+    """KPIs del dashboard.
+
+    Para el asesor los KPIs se limitan a SU cartera (`clients.asesor_id`): ve
+    sus clientes, sus elegibles MT, su conversion y su valor potencial. El
+    supervisor/admin sigue viendo los totales globales.
+    """
     from sqlalchemy import func
-    from datetime import date, timedelta
 
-    total_clients = db.query(func.count(models.Client.id)).scalar() or 0
-    elegibles_mt = _count_elegibles_mt(db)
+    is_asesor = current_user.role == "asesor"
 
-    accepted = db.query(func.count(models.Interaction.id)).filter(models.Interaction.result == "accepted").scalar() or 0
-    total_interactions = db.query(func.count(models.Interaction.id)).scalar() or 0
+    if is_asesor:
+        base = db.query(models.Client).filter(models.Client.asesor_id == current_user.id)
+        total_clients = base.count()
+        elegibles_mt = _count_elegibles_mt(db, asesor_id=current_user.id)
+        accepted = (
+            db.query(func.count(models.Interaction.id))
+            .join(models.Client, models.Interaction.client_id == models.Client.id)
+            .filter(models.Client.asesor_id == current_user.id, models.Interaction.result == "accepted")
+            .scalar()
+            or 0
+        )
+        total_interactions = (
+            db.query(func.count(models.Interaction.id))
+            .join(models.Client, models.Interaction.client_id == models.Client.id)
+            .filter(models.Client.asesor_id == current_user.id)
+            .scalar()
+            or 0
+        )
+    else:
+        total_clients = db.query(func.count(models.Client.id)).scalar() or 0
+        elegibles_mt = _count_elegibles_mt(db)
+        accepted = db.query(func.count(models.Interaction.id)).filter(models.Interaction.result == "accepted").scalar() or 0
+        total_interactions = db.query(func.count(models.Interaction.id)).scalar() or 0
+
     conversion = round((accepted / total_interactions) * 100, 1) if total_interactions else 0
 
     return {
