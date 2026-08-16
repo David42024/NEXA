@@ -3,10 +3,34 @@ import { useNavigate } from 'react-router-dom'
 import {
   TrendingUp, Target, DollarSign, ShieldCheck,
   CheckCircle2, AlertCircle, Sparkles, ChevronRight,
-  Star, ArrowUpRight, Smartphone, Home,
+  Star, ArrowUpRight, Smartphone, Home, Flame, AlertTriangle, BatteryWarning,
 } from 'lucide-react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
+
+// Control de Churn (MoM): segmentos clave y su tasa de retención estimada.
+const CHURN_SEGMENTS = [
+  {
+    id: 'oro', label: 'Oro Convergente', icon: Flame,
+    retencion: '92.4%', delta: '+5.2%', vol: '45%',
+    color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-100 dark:bg-emerald-400/10',
+  },
+  {
+    id: 'alerta', label: 'Alerta Roja (Riesgo)', icon: AlertTriangle,
+    retencion: '48.5%', delta: '+15.3%', vol: '20%',
+    color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-100 dark:bg-rose-400/10',
+  },
+  {
+    id: 'gigas', label: 'Hambrientos de Datos', icon: BatteryWarning,
+    retencion: '76.0%', delta: '+8.1%', vol: '25%',
+    color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-100 dark:bg-amber-400/10',
+  },
+  {
+    id: 'digital', label: 'Nativos Digitales', icon: Smartphone,
+    retencion: '88.2%', delta: '+2.4%', vol: '10%',
+    color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-100 dark:bg-blue-400/10',
+  },
+]
 
 const FUNNEL_PERIODS = [
   { key: 'daily', label: '7 días', endpoint: '/api/funnel/daily' },
@@ -225,6 +249,41 @@ export default function SupervisorDashboard() {
               <p className="mt-1 text-xs text-slate-400">aceptaciones registradas en la plataforma</p>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Control de Churn (MoM) */}
+      <div className="card p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <p className="label-eyebrow">Eficiencia de segmentación IA & control de churn (MoM)</p>
+          <span className="text-xs text-slate-400">Comparativo mes a mes</span>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {CHURN_SEGMENTS.map((seg) => {
+            const Icon = seg.icon
+            return (
+              <div
+                key={seg.id}
+                className="relative overflow-hidden rounded-xl border border-slate-100 bg-slate-50 p-4 dark:border-white/5 dark:bg-white/5"
+              >
+                <div className={`absolute -right-4 -top-4 h-16 w-16 rounded-full opacity-20 ${seg.bg}`} />
+                <div className="mb-3 flex items-center gap-2">
+                  <Icon size={16} className={seg.color} />
+                  <span className="text-sm font-bold text-navy-900 dark:text-white">{seg.label}</span>
+                </div>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">Tasa de retención</p>
+                    <p className={`font-display text-2xl font-black ${seg.color}`}>{seg.retencion}</p>
+                  </div>
+                  <span className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
+                    ↑ {seg.delta}
+                  </span>
+                </div>
+                <div className="mt-3 text-xs font-semibold text-slate-400">Volumen de base: {seg.vol}</div>
+              </div>
+            )
+          })}
         </div>
       </div>
 

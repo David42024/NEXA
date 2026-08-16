@@ -95,6 +95,17 @@ describe('SupervisorDashboard', () => {
     expect(screen.getByText('55% de la base')).toBeInTheDocument()
   })
 
+  it('muestra el bloque de control de churn (MoM) con los segmentos clave', () => {
+    renderDashboard()
+    expect(screen.getByText('Eficiencia de segmentación IA & control de churn (MoM)')).toBeInTheDocument()
+    expect(screen.getByText('Oro Convergente')).toBeInTheDocument()
+    expect(screen.getByText('Alerta Roja (Riesgo)')).toBeInTheDocument()
+    expect(screen.getByText('Hambrientos de Datos')).toBeInTheDocument()
+    expect(screen.getByText('Nativos Digitales')).toBeInTheDocument()
+    expect(screen.getByText('92.4%')).toBeInTheDocument()
+    expect(screen.getByText('Volumen de base: 45%')).toBeInTheDocument()
+  })
+
   it('rankear embajadores y riesgo por conversión de cartera', async () => {
     renderDashboard()
     expect((await screen.findAllByText('Ana Torres')).length).toBeGreaterThan(0)
