@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar } from 'recharts'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar,
+  FunnelChart, Funnel as FunnelShape, LabelList, PieChart, Pie, Cell, Legend,
+} from 'recharts'
 import api from '../utils/api'
 
 const PERIODS = [
@@ -15,16 +18,7 @@ const STAGE_TIPS_CLASSIC = {
   'Ofrecimientos': 'Ofertas presentadas al cliente (alcanzaron la etapa de objeciones del seguimiento E2E).',
   'Aceptaciones': 'Ofertas aceptadas = ventas cerradas en el periodo.',
 }
-const STAGE_TIPS_E2E = {
-  classified: 'Cliente clasificado y con oferta recomendada: aquí inicia el seguimiento de la oferta.',
-  planned: 'Se definió el canal de contacto (WhatsApp, Llamada o App) y el mensaje/speech a enviar.',
-  contacted: 'Contactabilidad real: el cliente contestó, solo leyó o no respondió.',
-  objection: 'El cliente planteó objeciones y el asesor las manejó (con o sin rebate).',
-  result: 'Cierre de venta: oferta aceptada o rechazada.',
-}
 const PCT_TIP = 'Porcentaje que representa este valor respecto a la etapa anterior. Menor a 100% = se pierden ofrecimientos entre etapas.'
-const DROP_TIP = 'Ofrecimientos que llegaron a la etapa anterior pero no continuaron a esta (pérdida entre etapas).'
-const TOTAL_TIP = 'Ofrecimientos rastreados en la ventana del periodo. Un cliente analizado = un ofrecimiento, así coincide con el funnel clásico.'
 const BREAKDOWN_TIPS = {
   'Canales de contacto': 'Distribución de ofrecimientos por canal usado (WhatsApp, Llamada, App).',
   'Contactabilidad real': 'Resultado del contacto: cuántos contestaron, solo leyeron o no respondieron.',
@@ -47,17 +41,25 @@ function Tip({ text, side = 'top' }) {
   )
 }
 
-const E2E_COLORS = [
-  'from-cyan-400 to-sky-500',
-  'from-sky-400 to-blue-500',
-  'from-blue-400 to-blue-600',
-  'from-cyan-500 to-cyan-600',
-  'from-sky-500 to-blue-700',
-  'from-blue-600 to-navy-800',
-]
+const FUNNEL_FILLS = ['#002E70', '#0047A5', '#0066DF', '#1A8CFF', '#4DB8FF']
+const PIE_COLORS = ['#00A4FF', '#005CE6', '#00E6B8']
 const CONTACT_LABELS = { answered: 'Contestó', read: 'Leyó', unanswered: 'No respondió' }
 const EVIDENCE_LABELS = { call_audio: 'Audio de llamada', platform_register: 'Registro en plataforma' }
 const RESULT_LABELS = { accepted: 'Aceptadas', rejected: 'Rechazadas' }
+
+// En móvil el LabelList derecho del embudo se corta: se lista bajo el gráfico.
+function useIsMobile() {
+  const [mobile, setMobile] = useState(false)
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia('(max-width: 640px)')
+    const update = (e) => setMobile(e.matches)
+    setMobile(mq.matches)
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return mobile
+}
 
 export default function Funnel() {
   const [period, setPeriod] = useState('daily')
@@ -216,7 +218,7 @@ function BreakdownCard({ title, items, tip }) {
 }
 
 function E2ESection({ e2e, days }) {
-  const firstValue = e2e.stages[0]?.value || 1
+  const mobile = useIsMobile()
   const worstDrop = e2e.stages.reduce((acc, s, i) => {
     if (i === 0) return acc
     const prev = e2e.stages[i - 1].value
@@ -226,6 +228,12 @@ function E2ESection({ e2e, days }) {
     }
     return acc
   }, { lost: 0, label: null })
+
+  const funnelData = e2e.stages.map((s, i) => ({
+    step: `${i + 1}. ${s.label}`,
+    value: s.value,
+    fill: FUNNEL_FILLS[i % FUNNEL_FILLS.length],
+  }))
 
   return (
     <section className="mb-8">
@@ -241,63 +249,63 @@ function E2ESection({ e2e, days }) {
         )}
       </div>
 
+      {/* Embudo del viaje completo de la oferta */}
       <div className="card p-6 mt-4">
-        <div className="space-y-3">
-          {e2e.stages.map((s, i) => {
-            const pct = firstValue > 0 ? Math.round((s.value / firstValue) * 100) : 0
-            const width = Math.max(pct, 4)
-            const lost = i > 0 ? (e2e.stages[i - 1].value || 0) - s.value : 0
-            return (
-              <div key={s.key}>
-                <div className="mb-1 flex items-baseline justify-between text-xs">
-                  <span className="relative group inline-flex">
-                    <span className="text-slate-500 dark:text-slate-400">{i + 1}. {s.label}</span>
-                    <Tip text={STAGE_TIPS_E2E[s.key] || ''} />
-                  </span>
-                  <span className="relative group inline-flex font-mono font-medium text-navy-800 dark:text-white">
-                    {s.value.toLocaleString('es-PE')}
-                    {i > 0 && s.pct_of_previous != null && (
-                      <span className="ml-1.5 text-slate-400">{s.pct_of_previous}% del anterior</span>
+        {e2e.total === 0 ? (
+          <p className="py-10 text-center text-sm text-slate-400">Sin ofrecimientos rastreados en el periodo.</p>
+        ) : (
+          <>
+            <div className="h-80 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <FunnelChart maxWidth={mobile ? undefined : 540}>
+                  <Tooltip cursor={{ fill: 'transparent' }} />
+                  <FunnelShape dataKey="value" data={funnelData} isAnimationActive>
+                    {!mobile && (
+                      <LabelList position="right" fill="#64748B" stroke="none" dataKey="step" className="text-xs font-medium" />
                     )}
-                    <Tip text={PCT_TIP} />
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
-                  <div
-                    className={`h-full rounded-full bg-gradient-to-r ${E2E_COLORS[i % E2E_COLORS.length]}`}
-                    style={{ width: `${width}%`, transition: 'width 0.6s ease' }}
-                  />
-                </div>
-                {lost > 0 && (
-                  <span className="relative group inline-block mt-0.5">
-                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
-                      ▼ {lost.toLocaleString('es-PE')} no avanzaron a esta etapa
-                    </p>
-                    <Tip text={DROP_TIP} />
-                  </span>
-                )}
-              </div>
-            )
-          })}
-          <span className="relative group inline-block pt-2 border-t border-slate-100 dark:border-white/5">
-            <p className="text-xs text-slate-400">
+                    <LabelList position="center" fill="#FFFFFF" stroke="none" dataKey="value" className="text-sm font-bold" />
+                  </FunnelShape>
+                </FunnelChart>
+              </ResponsiveContainer>
+            </div>
+            {/* En móvil las etiquetas de etapa se listan bajo el embudo para no cortarse */}
+            {mobile && (
+              <ul className="mt-3 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                {funnelData.map((s) => (
+                  <li key={s.step} className="flex items-center justify-between gap-2">
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.fill }} />
+                      {s.step}
+                    </span>
+                    <span className="font-mono font-semibold text-navy-800 dark:text-white">
+                      {s.value.toLocaleString('es-PE')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-4 text-center text-xs text-slate-400">
               Total de ofrecimientos rastreados ({days} días): {e2e.total.toLocaleString('es-PE')}
             </p>
-            <Tip text={TOTAL_TIP} />
-          </span>
-        </div>
+          </>
+        )}
       </div>
 
+      {/* Desgloses: los tres de canal/contacto como tortas, el resto como barras */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mt-5">
-        <BreakdownCard title="Canales de contacto" items={e2e.channels} tip={BREAKDOWN_TIPS['Canales de contacto']} />
-        <BreakdownCard
+        <DoughnutCard
+          title="Canales de contacto"
+          items={e2e.channels.map((c) => ({ name: c.label, value: c.value }))}
+          tip={BREAKDOWN_TIPS['Canales de contacto']}
+        />
+        <DoughnutCard
           title="Contactabilidad real"
-          items={e2e.contact_status.map((c) => ({ label: CONTACT_LABELS[c.label] || c.label, value: c.value }))}
+          items={e2e.contact_status.map((c) => ({ name: CONTACT_LABELS[c.label] || c.label, value: c.value }))}
           tip={BREAKDOWN_TIPS['Contactabilidad real']}
         />
-        <BreakdownCard
+        <DoughnutCard
           title="Medios probatorios"
-          items={e2e.evidence_types.map((c) => ({ label: EVIDENCE_LABELS[c.label] || c.label, value: c.value }))}
+          items={e2e.evidence_types.map((c) => ({ name: EVIDENCE_LABELS[c.label] || c.label, value: c.value }))}
           tip={BREAKDOWN_TIPS['Medios probatorios']}
         />
         <BreakdownCard
@@ -316,5 +324,36 @@ function E2ESection({ e2e, days }) {
         <BreakdownCard title="Motivos de rechazo" items={e2e.rejection_reasons} tip={BREAKDOWN_TIPS['Motivos de rechazo']} />
       </div>
     </section>
+  )
+}
+
+function DoughnutCard({ title, items, tip }) {
+  const total = items.reduce((acc, it) => acc + (it.value || 0), 0)
+  return (
+    <div className="card p-5">
+      <span className="relative group inline-block w-full">
+        <p className="label-eyebrow mb-3 text-center">{title}</p>
+        {tip && <Tip text={tip} />}
+      </span>
+      {items.length === 0 || total === 0 ? (
+        <div className="flex h-48 items-center justify-center">
+          <p className="text-xs text-slate-400">Sin datos aún</p>
+        </div>
+      ) : (
+        <div className="h-48">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={items} innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value" nameKey="name">
+                {items.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
   )
 }

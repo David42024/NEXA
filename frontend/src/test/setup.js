@@ -20,3 +20,13 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: vi.fn(),
   })),
 })
+
+// recharts (ResponsiveContainer) y otros componentes usan ResizeObserver, ausente en jsdom.
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+if (typeof window.ResizeObserver === 'undefined') {
+  window.ResizeObserver = ResizeObserverMock
+}
