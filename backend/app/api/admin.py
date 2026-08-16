@@ -22,10 +22,29 @@ def _count_elegibles_mt(db, asesor_id: int = None) -> int:
     """Cuenta clientes elegibles a Movistar Total sin cargar todo a memoria.
 
     Con 100k+ clientes un `.all()` con los perfiles JSON revienta la RAM de
-    instancias pequeñas (Render 512MB). Se barre por lotes trayendo solo la
-    columna `profile` (portable SQLite/Postgres). Con `asesor_id` solo cuenta
-    la cartera de ese asesor.
+    instancias pequenas (Render 512MB). En Postgres (produccion) se cuenta con
+    un unico query sobre el JSON del perfil, evitando decenas de round-trips de
+    red contra la BD; en SQLite (tests) se barre por lotes. Con `asesor_id`
+    solo cuenta la cartera de ese asesor.
     """
+    if db.get_bind().dialect.name == "postgresql":
+        try:
+            from sqlalchemy import text
+            if asesor_id is not None:
+                q = text(
+                    "SELECT count(*) FROM clients "
+                    "WHERE (profile -> 'elegibilidad' ->> 'movistar_total') = 'true' "
+                    "AND asesor_id = :asesor_id"
+                ).bindparams(asesor_id=asesor_id)
+            else:
+                q = text(
+                    "SELECT count(*) FROM clients "
+                    "WHERE (profile -> 'elegibilidad' ->> 'movistar_total') = 'true'"
+                )
+            return db.execute(q).scalar() or 0
+        except Exception:
+            pass  # si falla el query JSON, se cae al barrido portable
+
     count = 0
     last_id = None
     BATCH = 2000
@@ -293,29 +312,38 @@ def get_asesores(db: Session = Depends(get_db), _user=Depends(require_permission
         .group_by(models.Client.asesor_id)
         .all()
     )
+    # Con 50k ofrecimientos hacer 3 queries POR asesor (103) dispara ~300
+    # round-trips contra la BD remota (55s+ en Neon). Se agrupan en 3 queries
+    # unicas y se resuelve por dict.
+    cartera_stats = dict(
+        db.query(models.Client.asesor_id, func.count(models.Client.id))
+        .filter(models.Client.asesor_id.isnot(None))
+        .group_by(models.Client.asesor_id)
+        .all()
+    )
+    ofrecimiento_stats = dict(
+        db.query(models.Offering.asesor_id, func.count(models.Offering.id))
+        .filter(models.Offering.asesor_id.isnot(None), models.Offering.created_at >= month_start)
+        .group_by(models.Offering.asesor_id)
+        .all()
+    )
+    ventas_stats = dict(
+        db.query(models.Offering.asesor_id, func.count(models.Offering.id))
+        .filter(
+            models.Offering.asesor_id.isnot(None),
+            models.Offering.stage == "result",
+            models.Offering.result == "accepted",
+            models.Offering.created_at >= month_start,
+        )
+        .group_by(models.Offering.asesor_id)
+        .all()
+    )
 
     rows = []
     for a in db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all():
-        ventas = (
-            db.query(func.count(models.Offering.id))
-            .filter(
-                models.Offering.asesor_id == a.id,
-                models.Offering.stage == "result",
-                models.Offering.result == "accepted",
-                models.Offering.created_at >= month_start,
-            )
-            .scalar()
-            or 0
-        )
-        ofrecimientos = (
-            db.query(func.count(models.Offering.id))
-            .filter(models.Offering.asesor_id == a.id, models.Offering.created_at >= month_start)
-            .scalar()
-            or 0
-        )
-        clientes_cartera = (
-            db.query(func.count(models.Client.id)).filter(models.Client.asesor_id == a.id).scalar() or 0
-        )
+        ventas = ventas_stats.get(a.id, 0)
+        ofrecimientos = ofrecimiento_stats.get(a.id, 0)
+        clientes_cartera = cartera_stats.get(a.id, 0)
         interacciones = total_stats.get(a.id, 0)
         aceptadas = accepted_stats.get(a.id, 0)
         rechazadas = max(interacciones - aceptadas, 0)
@@ -352,14 +380,45 @@ SEGMENTOS_DEF = [
 def get_segmentos(db: Session = Depends(get_db), _user=Depends(require_permission("view_funnel"))):
     """Segmentacion IA de la base: clientes elegibles por tipo de oferta.
 
-    Barre los perfiles por lotes (portable SQLite/Postgres) contando las 4
-    elegibilidades en una sola pasada, para no disparar 4 escaneos completos.
+    En Postgres (produccion) cuenta las 4 elegibilidades en un solo query sobre
+    el JSON del perfil (evita escanear 100k perfiles por lotes de red). En
+    SQLite (tests) barre los perfiles por lotes de forma portable.
     """
     from sqlalchemy import func
 
     counts = {key: 0 for key, _, _ in SEGMENTOS_DEF}
     base = db.query(func.count(models.Client.id)).scalar() or 0
 
+    if db.get_bind().dialect.name == "postgresql":
+        try:
+            from sqlalchemy import text
+            cols = ", ".join(
+                f"count(*) FILTER (WHERE (profile -> 'elegibilidad' ->> '{key}') = 'true') AS {key}"
+                for key in counts
+            )
+            row = db.execute(text(f"SELECT {cols} FROM clients")).one()
+            counts = {key: int(row._mapping[key] or 0) for key in counts}
+        except Exception:
+            counts = _count_segmentos_portable(db, {key: 0 for key, _, _ in SEGMENTOS_DEF})
+    else:
+        counts = _count_segmentos_portable(db, counts)
+
+    segmentos = [
+        {
+            "key": key,
+            "label": label,
+            "descripcion": desc,
+            "count": counts[key],
+            "pct": round((counts[key] / base) * 100, 1) if base else 0,
+            "potencial_soles": round(counts[key] * 22.3, 2),
+        }
+        for key, label, desc in SEGMENTOS_DEF
+    ]
+    return {"base": base, "segmentos": segmentos}
+
+
+def _count_segmentos_portable(db, counts):
+    """Barrido por lotes de los perfiles (portable SQLite/Postgres)."""
     last_id = None
     while True:
         q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
@@ -374,16 +433,4 @@ def get_segmentos(db: Session = Depends(get_db), _user=Depends(require_permissio
                 if elig.get(key):
                     counts[key] += 1
         last_id = rows[-1][0]
-
-    segmentos = [
-        {
-            "key": key,
-            "label": label,
-            "descripcion": desc,
-            "count": counts[key],
-            "pct": round((counts[key] / base) * 100, 1) if base else 0,
-            "potencial_soles": round(counts[key] * 22.3, 2),
-        }
-        for key, label, desc in SEGMENTOS_DEF
-    ]
-    return {"base": base, "segmentos": segmentos}
+    return counts
