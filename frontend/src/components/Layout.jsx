@@ -25,7 +25,7 @@ export default function Layout({ children }) {
     }`
 
   return (
-    <div className="min-h-screen flex bg-surface dark:bg-navy-950">
+    <div className="flex min-h-screen flex-col bg-surface dark:bg-navy-950 lg:flex-row">
       {/* Top bar móvil */}
       <header className="sticky top-0 z-30 flex items-center gap-2.5 border-b border-slate-200/80 bg-white px-4 py-2.5 lg:hidden dark:border-white/10 dark:bg-navy-900">
         <button
