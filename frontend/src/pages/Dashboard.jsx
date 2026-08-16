@@ -306,7 +306,7 @@ export default function Dashboard() {
                   onClick={() => navigate(`/clientes/${c.id}`)}
                   className="group -mx-2 flex w-full items-center justify-between rounded-lg px-2 py-3 text-left transition-colors duration-200 hover:bg-slate-50 dark:hover:bg-white/5"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900/5 font-display text-sm font-semibold text-navy-800 dark:bg-white/10 dark:text-white">
                       {c.name?.[0] || '?'}
                     </div>
@@ -336,7 +336,7 @@ export default function Dashboard() {
                     )}
                     {c.llamable_ahora && (
                       <span
-                        className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
+                        className="badge hidden bg-emerald-500/10 text-emerald-600 sm:inline-flex dark:bg-emerald-400/10 dark:text-emerald-300"
                         title="Su mejor hora de atención incluye el horario actual"
                       >
                         Llamable ahora
@@ -344,7 +344,7 @@ export default function Dashboard() {
                     )}
                     {c.elegible && (
                       <span
-                        className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"
+                        className="badge hidden bg-cyan-500/10 text-cyan-600 sm:inline-flex dark:bg-cyan-400/10 dark:text-cyan-300"
                         title="Elegible para Movistar Total"
                       >
                         Elegible MT
@@ -361,7 +361,7 @@ export default function Dashboard() {
 
             {/* Paginación servidor-side: una página a la vez para no cargar todo el segmento */}
             {total > PAGE_SIZE && (
-              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-white/5">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-4 dark:border-white/5">
                 <p className="text-xs text-slate-400">
                   Mostrando {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} de{' '}
                   {total.toLocaleString('es-PE')}

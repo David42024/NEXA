@@ -239,7 +239,7 @@ export default function ClientSearch() {
                 </div>
               )}
 
-              <div className="mt-4 flex items-center gap-3 max-w-2xl">
+              <div className="mt-4 flex flex-wrap items-center gap-3 max-w-2xl">
                 <button
                   onClick={() => loadList(page - 1)}
                   disabled={page <= 1 || listLoading}
@@ -300,35 +300,35 @@ function ClientRow({ c, onSelect }) {
       onClick={() => onSelect(c.id)}
       className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors dark:hover:bg-white/5"
     >
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="w-10 h-10 shrink-0 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
           {c.name?.[0]}
         </div>
-        <div>
-          <p className="font-medium text-navy-900 dark:text-white">{c.name}</p>
-          <p className="text-xs text-slate-400 font-mono">
+        <div className="min-w-0">
+          <p className="font-medium text-navy-900 dark:text-white truncate">{c.name}</p>
+          <p className="text-xs text-slate-400 font-mono truncate">
             {c.id} · {c.district} · Plan {c.plan_actual || '—'}
           </p>
           {c.mejor_hora && (
-            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 truncate">
               🕒 Mejor hora {c.mejor_hora}
             </p>
           )}
           {c.top_offer && (
-            <p className="mt-0.5 text-[11px] text-cyan-600 dark:text-cyan-400">
+            <p className="mt-0.5 text-[11px] text-cyan-600 dark:text-cyan-400 truncate">
               → {c.top_offer}
               {c.motivo && !ELIG_MOTIVOS.includes(c.motivo) ? ` · por ${c.motivo}` : ''}
             </p>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
         {c.segmento && SEGMENT_DEFS[c.segmento] && (
           <span className={`badge ${SEGMENT_DEFS[c.segmento].pill}`}>{SEGMENT_DEFS[c.segmento].label}</span>
         )}
         {c.llamable_ahora && (
           <span
-            className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"
+            className="badge hidden bg-emerald-500/10 text-emerald-600 sm:inline-flex dark:bg-emerald-400/10 dark:text-emerald-300"
             title="Su mejor hora de atención incluye el horario actual"
           >
             Llamable ahora
@@ -336,7 +336,7 @@ function ClientRow({ c, onSelect }) {
         )}
         {c.elegible && (
           <span
-            className="badge bg-cyan-500/10 text-cyan-600 dark:bg-cyan-400/10 dark:text-cyan-300"
+            className="badge hidden bg-cyan-500/10 text-cyan-600 sm:inline-flex dark:bg-cyan-400/10 dark:text-cyan-300"
             title="Elegible para Movistar Total"
           >
             Elegible MT

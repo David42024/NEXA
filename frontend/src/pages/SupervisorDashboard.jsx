@@ -69,8 +69,8 @@ function SkeletonBlock({ className = 'h-3 rounded bg-slate-200 dark:bg-navy-700'
 
 function RankRow({ a, color, barColor }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex w-2/5 min-w-0 items-center gap-3">
+    <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:gap-3">
+      <div className="flex min-w-0 items-center gap-3 sm:w-2/5">
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-display text-xs font-bold ${color}`}
         >
@@ -81,7 +81,7 @@ function RankRow({ a, color, barColor }) {
           <p className="truncate text-[11px] text-slate-400">{a.clientes_cartera ?? 0} clientes en cartera</p>
         </div>
       </div>
-      <div className="flex w-3/5 items-center gap-3">
+      <div className="flex items-center gap-3 sm:flex-1">
         <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
           <div
             className={`h-full rounded-full ${barColor}`}

@@ -19,6 +19,7 @@ html.dark body {
 
 body {
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
 }
 
 ::-webkit-scrollbar {
