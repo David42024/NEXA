@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Flame, AlertTriangle, BatteryWarning, Smartphone, Users } from 'lucide-react'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
 import KpiCard from '../components/KpiCard.jsx'
@@ -30,6 +31,40 @@ const FUNNEL_COLORS = [
   'from-cyan-500 to-cyan-600',
   'from-sky-500 to-blue-700',
 ]
+
+// Segmentos estratégicos del asesor: definición visual + etiqueta corta para el chip del cliente.
+const SEGMENT_DEFS = {
+  Todos: {
+    label: 'Todos',
+    icon: Users,
+    chipActive: 'bg-navy-900 text-white border-navy-900 dark:bg-white dark:text-navy-900 dark:border-white',
+    pill: 'bg-slate-100 text-slate-600 dark:bg-white/10 dark:text-slate-300',
+  },
+  Oro: {
+    label: 'Oro Convergente',
+    icon: Flame,
+    chipActive: 'bg-emerald-600 text-white border-emerald-600',
+    pill: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300',
+  },
+  Alerta: {
+    label: 'Alerta Roja',
+    icon: AlertTriangle,
+    chipActive: 'bg-rose-600 text-white border-rose-600',
+    pill: 'bg-rose-500/10 text-rose-600 dark:bg-rose-400/10 dark:text-rose-300',
+  },
+  Gigas: {
+    label: 'Hambrientos de Datos',
+    icon: BatteryWarning,
+    chipActive: 'bg-amber-500 text-navy-900 border-amber-500 dark:text-white',
+    pill: 'bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300',
+  },
+  Digital: {
+    label: 'Nativos Digitales',
+    icon: Smartphone,
+    chipActive: 'bg-blue-600 text-white border-blue-600',
+    pill: 'bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300',
+  },
+}
 
 function ClientListSkeleton() {
   return (
@@ -127,6 +162,8 @@ export default function Dashboard() {
   const [asesores, setAsesores] = useState(null)
   const [asesoresMeta, setAsesoresMeta] = useState(4)
   const [progreso, setProgreso] = useState(null)
+  const [segmentos, setSegmentos] = useState([])
+  const [segFiltro, setSegFiltro] = useState('Todos')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [clientsError, setClientsError] = useState(false)
@@ -145,14 +182,18 @@ export default function Dashboard() {
         const progresoRes = isAsesor
           ? api.get('/api/asesor/progreso').catch(() => null)
           : Promise.resolve({ data: null })
-        const clientsRes = api.get('/api/clients/search?q=C0').catch(() => null)
+        // El asesor ve SU cartera categorizada en segmentos estratégicos (referencia del panel gerencial).
+        const clientsRes = isAsesor
+          ? api.get('/api/asesor/priorizados').catch(() => null)
+          : Promise.resolve({ data: null })
         const [k, f, a, p, c] = await Promise.all([kpiRes, funnelRes, asesoresRes, progresoRes, clientsRes])
         setKpis(k.data)
         setFunnel(f.data)
         setAsesores(a?.data?.asesores || null)
         setAsesoresMeta(a?.data?.meta_ventas ?? 60)
         setProgreso(p?.data || null)
-        setClients(c?.data?.results?.slice(0, 6) || [])
+        setSegmentos(c?.data?.segmentos || [])
+        setClients(c?.data?.clientes || [])
         setClientsError(!c)
       } finally {
         setLoading(false)
@@ -165,6 +206,8 @@ export default function Dashboard() {
     e.preventDefault()
     if (query.trim()) navigate(`/clientes?q=${encodeURIComponent(query.trim())}`)
   }
+
+  const clientesFiltrados = segFiltro === 'Todos' ? clients : clients.filter((cl) => cl.segmento === segFiltro)
 
   const card = 'rounded-2xl border border-black/60 bg-white p-6 transition-colors duration-200 dark:border-white/60 dark:bg-navy-800/60'
 
@@ -245,17 +288,50 @@ export default function Dashboard() {
             </button>
           </div>
 
+          {/* Chips de segmentación estratégica (referencia del panel gerencial) */}
+          {segmentos.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-2">
+              {segmentos.map((seg) => {
+                const def = SEGMENT_DEFS[seg.id]
+                if (!def) return null
+                const Icon = def.icon
+                const active = segFiltro === seg.id
+                return (
+                  <button
+                    key={seg.id}
+                    onClick={() => setSegFiltro(seg.id)}
+                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                      active
+                        ? def.chipActive
+                        : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50 dark:bg-navy-800/60 dark:text-slate-400 dark:border-white/10'
+                    }`}
+                  >
+                    <Icon size={13} />
+                    {def.label}
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+                        active ? 'bg-white/20' : 'bg-slate-100 dark:bg-navy-700'
+                      }`}
+                    >
+                      {seg.count.toLocaleString('es-PE')}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {loading ? (
             <ClientListSkeleton />
           ) : clientsError ? (
             <p className="text-sm text-slate-400">
               No se pudieron cargar los clientes priorizados.
             </p>
-          ) : clients.length === 0 ? (
-            <p className="text-sm text-slate-400">No hay clientes priorizados por ahora.</p>
+          ) : clientesFiltrados.length === 0 ? (
+            <p className="text-sm text-slate-400">Sin clientes en este segmento.</p>
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-white/5">
-              {clients.map((c) => (
+              {clientesFiltrados.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => navigate(`/clientes/${c.id}`)}
@@ -286,6 +362,9 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 sm:gap-2">
+                    {c.segmento && SEGMENT_DEFS[c.segmento] && (
+                      <span className={`badge ${SEGMENT_DEFS[c.segmento].pill}`}>{SEGMENT_DEFS[c.segmento].label}</span>
+                    )}
                     {c.llamable_ahora && (
                       <span
                         className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300"

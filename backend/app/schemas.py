@@ -55,6 +55,17 @@ class ClientListResponse(BaseModel):
     results: List[ClientSummary]
 
 
+class SegmentoCount(BaseModel):
+    id: str
+    label: str
+    count: int
+
+
+class AsesorPriorizadosResponse(BaseModel):
+    segmentos: List[SegmentoCount]
+    clientes: List[ClientSummary]
+
+
 class ClientSearchResult(BaseModel):
     results: List[ClientSummary]
     # Distinguir "match exacto por ID" de "sugerencias" (spec 10.5)
