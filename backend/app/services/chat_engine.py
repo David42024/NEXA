@@ -130,16 +130,25 @@ def _context_text(ctx: Dict) -> str:
     return "\n".join(lines)
 
 
-def _build_prompt(ctx: Dict, message: str) -> str:
-    return (
-        "Eres Nexabot, asistente comercial de Movistar. Responde cualquier consulta del asesor: "
-        "objeciones, argumentos de venta, planes, tarifas, cobertura, portabilidad, reclamos o dudas "
-        "generales que el asesor no sepa. Responde en espanol neutro, CONCISO: 1-2 frases, directo al punto, "
-        "con datos numericos si aplica. Si el asesor pide un speech, escribelo entre comillas. "
-        "Contexto del cliente:\n"
-        f"{_context_text(ctx)}\n"
-        f"Pregunta del asesor: \"{message}\""
-    )
+def _build_prompt(ctx: Dict, message: str, transcript=None) -> str:
+    parts = [
+        (
+            "Eres Nexabot, asistente comercial de Movistar. Responde cualquier consulta del asesor: "
+            "objeciones, argumentos de venta, planes, tarifas, cobertura, portabilidad, reclamos o dudas "
+            "generales que el asesor no sepa. Responde en espanol neutro, CONCISO: 1-2 frases, directo al punto, "
+            "con datos numericos si aplica. Si el asesor pide un speech, escribelo entre comillas. "
+            "Contexto del cliente:\n"
+            f"{_context_text(ctx)}"
+        )
+    ]
+    if transcript:
+        lines = "\n".join(str(t) for t in transcript[-30:])
+        parts.append(
+            "Transcripcion reciente de la llamada en curso (usala si la pregunta "
+            f"se refiere a la conversacion):\n{lines}"
+        )
+    parts.append(f"Pregunta del asesor: \"{message}\"")
+    return "\n\n".join(parts)
 
 
 async def _call_groq(prompt: str) -> str:
@@ -229,8 +238,8 @@ def _local_reply(ctx: Dict, message: str) -> str:
     )
 
 
-async def generate_nexabot_reply(ctx: Dict, message: str) -> Dict:
-    prompt = _build_prompt(ctx, message)
+async def generate_nexabot_reply(ctx: Dict, message: str, transcript=None) -> Dict:
+    prompt = _build_prompt(ctx, message, transcript)
     source = "groq"
     try:
         reply = await _call_groq(prompt)

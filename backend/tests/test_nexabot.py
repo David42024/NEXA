@@ -24,6 +24,28 @@ async def test_camino_groq_ok(monkeypatch):
     assert gemini_called == []
 
 
+async def test_prompt_incluye_transcripcion_de_la_llamada(monkeypatch):
+    """El chat copilot recibe la transcripcion para responder sobre la conversacion."""
+    captured = {}
+
+    async def fake_groq(prompt):
+        captured["prompt"] = prompt
+        return "El cliente objetó el precio."
+
+    monkeypatch.setattr(chat_engine, "_call_groq", fake_groq)
+
+    transcript = ["Cliente: me parece muy caro", "Asesor: le muestro el ahorro"]
+    await chat_engine.generate_nexabot_reply(
+        chat_engine.build_context({}), "¿Qué objeción puso?", transcript=transcript
+    )
+    assert "Transcripcion reciente de la llamada" in captured["prompt"]
+    assert "Cliente: me parece muy caro" in captured["prompt"]
+
+    # Sin transcripcion no se agrega la seccion (compatibilidad hacia atras).
+    await chat_engine.generate_nexabot_reply(chat_engine.build_context({}), "hola")
+    assert "Transcripcion" not in captured["prompt"]
+
+
 async def test_camino_groq_falla_gemini(monkeypatch):
     async def fake_groq(prompt):
         raise RuntimeError("GROQ_API_KEY no configurada")

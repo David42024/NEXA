@@ -136,6 +136,9 @@ class SpeechResponse(BaseModel):
 class NexabotRequest(BaseModel):
     client_id: str
     message: str
+    # Transcripcion reciente de la llamada en curso (lineas "Hablador: texto").
+    # Opcional: permite al asesor preguntar sobre la conversacion.
+    transcript: Optional[List[str]] = None
 
 
 class NexabotResponse(BaseModel):

@@ -10,11 +10,14 @@ import {
   MessageSquare,
   Phone,
   Hourglass,
-  List,
 } from 'lucide-react'
 import api from '../../utils/api'
 
-const QUICK_PROMPTS = ['¿Qué incluye Movistar Total?', '¿Cómo funciona la portabilidad?']
+const QUICK_PROMPTS = [
+  '¿Qué objeción puso el cliente?',
+  'Dame un speech para cerrar la venta',
+  'Resume la llamada hasta ahora',
+]
 
 const SOURCE_STYLE = {
   groq: 'text-cyan-600 bg-cyan-500/10 dark:text-cyan-300',
@@ -32,6 +35,21 @@ const OBJECTION_STYLE = {
   otro: 'bg-slate-500/10 text-slate-600 border-slate-300 dark:text-slate-300 dark:border-slate-400/30',
 }
 
+const SPEAKER_STYLE = {
+  Cliente: {
+    bubble: 'border-cyan-100 bg-cyan-50/60 dark:border-cyan-400/20 dark:bg-cyan-500/10',
+    label: 'text-cyan-600 dark:text-cyan-300',
+  },
+  Asesor: {
+    bubble: 'border-slate-200 bg-white dark:border-white/10 dark:bg-navy-950/40',
+    label: 'text-slate-500 dark:text-slate-400',
+  },
+  Bot: {
+    bubble: 'border-emerald-100 bg-emerald-50/60 dark:border-emerald-400/20 dark:bg-emerald-500/10',
+    label: 'text-emerald-600 dark:text-emerald-300',
+  },
+}
+
 export default function NexabotCopilot({
   clientId,
   clientName,
@@ -47,16 +65,46 @@ export default function NexabotCopilot({
   canSpeech,
   liveCopilot = [],
 }) {
+  // Dos chats: "llamada" = historial de la conversacion; "copilot" = pitchs + preguntas IA.
+  const [tab, setTab] = useState('copilot')
   const [messages, setMessages] = useState([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [showRebate, setShowRebate] = useState(false)
   const chatRef = useRef(null)
+  const transcriptRef = useRef(null)
   const inputRef = useRef(null)
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages, sending])
+
+  useEffect(() => {
+    if (tab === 'llamada') {
+      transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' })
+    }
+  }, [liveCopilot, tab])
+
+  // Historial real de la llamada (lo que se dijo) y tarjetas de coaching (lo que
+  // NEXA recomienda). El bot que habla entra al historial; sus sugerencias al
+  // asesor en modo asesor quedan como recomendaciones del copilot.
+  const callTranscript = []
+  const coachCards = []
+  liveCopilot.forEach((e) => {
+    if (e.type === 'stt') {
+      callTranscript.push({
+        speaker: e.speaker === 'asesor' ? 'Asesor' : 'Cliente',
+        text: e.text,
+        time: e.time,
+      })
+    } else if (e.type === 'copilot') {
+      if (e.speaker === 'bot') {
+        if (e.suggestion) callTranscript.push({ speaker: 'Bot', text: e.suggestion, time: e.time })
+      } else if (e.suggestion || e.objection) {
+        coachCards.push(e)
+      }
+    }
+  })
 
   async function send(text) {
     const value = (text ?? draft).trim()
@@ -65,7 +113,14 @@ export default function NexabotCopilot({
     setDraft('')
     setSending(true)
     try {
-      const { data } = await api.post('/api/nexabot/chat', { client_id: clientId, message: value })
+      // Contexto de la conversacion para que la IA pueda responder preguntas
+      // sobre la llamada (objeciones, lo que dijo el cliente, etc.).
+      const transcript = callTranscript.slice(-30).map((l) => `${l.speaker}: ${l.text}`)
+      const { data } = await api.post('/api/nexabot/chat', {
+        client_id: clientId,
+        message: value,
+        ...(transcript.length ? { transcript } : {}),
+      })
       setMessages((m) => [...m, { role: 'bot', text: data.reply, source: data.source }])
     } catch (e) {
       setMessages((m) => [
@@ -78,23 +133,13 @@ export default function NexabotCopilot({
   }
 
   function focusChat() {
-    inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    inputRef.current?.focus()
+    setTab('copilot')
+    setTimeout(() => inputRef.current?.focus(), 60)
   }
 
   const speechLoadingNow = speechLoading === topOffer?.oferta
   const firstVariant = speech?.variantes?.[0]
   const rebateVariant = speech?.variantes?.[1]
-
-  // Resumen de lo que el cliente dijo durante la llamada (sin repetir seguidas).
-  const clientLines = []
-  let lastLine = ''
-  liveCopilot.forEach((e) => {
-    if (e.type === 'stt' && e.speaker !== 'asesor' && e.text !== lastLine) {
-      clientLines.push(e)
-      lastLine = e.text
-    }
-  })
 
   const urgent = k.datosUrgent
   const datosAlerta = k.datosAlerta
@@ -116,9 +161,9 @@ export default function NexabotCopilot({
         </p>
       </div>
 
-      <div className="flex-1 space-y-3 px-4 py-3">
-        {/* Datos: urgencia real solo si se agotan antes del ciclo */}
-        {datosAlerta && (
+      {/* Datos: urgencia real solo si se agotan antes del ciclo */}
+      {datosAlerta && (
+        <div className="px-4 pt-3">
           <div
             className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
               urgent
@@ -139,123 +184,176 @@ export default function NexabotCopilot({
               {datosAlerta}
             </p>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Acciones principales */}
-        <div className="grid grid-cols-3 gap-2">
+      {/* Selector de chat */}
+      <div className="px-4 pt-3">
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-navy-950/50">
           <button
             type="button"
-            onClick={() => onGenerateSpeech(topOffer)}
-            disabled={!topOffer || speechLoadingNow || !canSpeech}
-            className="flex flex-col items-center justify-center gap-1 rounded-lg bg-cyan-500 px-1 py-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
+            onClick={() => setTab('llamada')}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+              tab === 'llamada'
+                ? 'bg-cyan-500 text-white shadow-sm'
+                : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
           >
-            {speechLoadingNow ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-            <span className="leading-none">{speechLoadingNow ? 'Generando' : 'Generar pitch'}</span>
+            <Phone className="h-3.5 w-3.5" />
+            Llamada
+            {callTranscript.length > 0 && (
+              <span
+                className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold leading-none ${
+                  tab === 'llamada' ? 'bg-white/25 text-white' : 'bg-slate-300/60 text-slate-600 dark:bg-white/10 dark:text-slate-300'
+                }`}
+              >
+                {callTranscript.length}
+              </span>
+            )}
           </button>
           <button
             type="button"
-            onClick={() => setShowRebate((v) => !v)}
-            disabled={!topOffer || !firstVariant}
-            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-2.5 text-[11px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+            onClick={() => setTab('copilot')}
+            className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
+              tab === 'copilot'
+                ? 'bg-navy-800 text-white shadow-sm dark:bg-white dark:text-navy-900'
+                : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
           >
-            <BadgePercent className="h-4 w-4" />
-            <span className="leading-none">Ver rebate</span>
-          </button>
-          <button
-            type="button"
-            onClick={focusChat}
-            className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-2.5 text-[11px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span className="leading-none">Preguntar</span>
+            <MessageSquare className="h-3.5 w-3.5" />
+            Copilot IA
           </button>
         </div>
+      </div>
 
-        {/* Pitch */}
-        {firstVariant && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <Zap className="h-3.5 w-3.5" />
-                Pitch
+      <div className="flex-1 space-y-3 px-4 py-3">
+        {/* ===== Chat 1: historial de la llamada ===== */}
+        {tab === 'llamada' && (
+          <div
+            ref={transcriptRef}
+            className="max-h-[520px] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50 p-3 pr-1 dark:border-white/5 dark:bg-white/5"
+          >
+            {callTranscript.length === 0 && (
+              <p className="py-6 text-center text-[11px] leading-relaxed text-slate-400 dark:text-slate-500">
+                Aquí aparecerá el historial completo de la llamada:
+                cada intervención del cliente, del asesor y del bot.
               </p>
+            )}
+            {callTranscript.map((line, i) => {
+              const st = SPEAKER_STYLE[line.speaker] || SPEAKER_STYLE.Asesor
+              return (
+                <div key={i} className={`rounded-lg border px-3 py-2 ${st.bubble}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[9px] font-bold uppercase tracking-wide ${st.label}`}>
+                      {line.speaker}
+                    </span>
+                    {line.time && (
+                      <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                        {new Date(line.time).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-navy-900 dark:text-slate-200">{line.text}</p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ===== Chat 2: copilot IA (pitchs + preguntas sobre la conversacion) ===== */}
+        {tab === 'copilot' && (
+          <>
+            {/* Acciones principales */}
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => onCopy(firstVariant.texto, `speech-${topOffer.oferta}`)}
-                className="flex items-center gap-1 text-[10px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
+                onClick={() => onGenerateSpeech(topOffer)}
+                disabled={!topOffer || speechLoadingNow || !canSpeech}
+                className="flex flex-col items-center justify-center gap-1 rounded-lg bg-cyan-500 px-1 py-2.5 text-[11px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
               >
-                {copiedKey === `speech-${topOffer.oferta}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                {copiedKey === `speech-${topOffer.oferta}` ? 'Copiado' : 'Copiar'}
+                {speechLoadingNow ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                <span className="leading-none">{speechLoadingNow ? 'Generando' : 'Generar pitch'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRebate((v) => !v)}
+                disabled={!topOffer || !firstVariant}
+                className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-2.5 text-[11px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+              >
+                <BadgePercent className="h-4 w-4" />
+                <span className="leading-none">Ver rebate</span>
+              </button>
+              <button
+                type="button"
+                onClick={focusChat}
+                className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-1 py-2.5 text-[11px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="leading-none">Preguntar</span>
               </button>
             </div>
-            <p className="text-xs leading-relaxed text-navy-900 dark:text-slate-200">{firstVariant.texto}</p>
-            <span className="mt-1.5 block text-[10px] text-slate-400 dark:text-slate-500">{firstVariant.variante}</span>
-          </div>
-        )}
 
-        {/* Rebate */}
-        {showRebate && topOffer && firstVariant && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <BadgePercent className="h-3.5 w-3.5" />
-                Rebate
-              </p>
-              {rebateVariant && (
-                <button
-                  type="button"
-                  onClick={() => onCopy(rebateVariant.texto, `rebate-${topOffer.oferta}`)}
-                  className="flex items-center gap-1 text-[10px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
-                >
-                  {copiedKey === `rebate-${topOffer.oferta}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                  {copiedKey === `rebate-${topOffer.oferta}` ? 'Copiado' : 'Copiar'}
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-300">
-              De <strong className="text-navy-900 dark:text-white">S/ {k.montoProm.toFixed(2)}</strong> a{' '}
-              <strong className="text-navy-900 dark:text-white">S/ {k.precioProyectado.toFixed(2)}</strong> ·{' '}
-              <strong className="text-emerald-600 dark:text-emerald-300">−S/ {k.ahorroMensual.toFixed(2)}/mes</strong>
-            </p>
-            {rebateVariant ? (
-              <>
-                <p className="mt-1.5 text-xs leading-relaxed text-navy-900 dark:text-slate-200">{rebateVariant.texto}</p>
-                <span className="mt-1 block text-[10px] text-slate-400 dark:text-slate-500">{rebateVariant.variante}</span>
-              </>
-            ) : (
-              <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">Genera el pitch para obtener el rebate.</p>
+            {/* Pitch */}
+            {firstVariant && (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <Zap className="h-3.5 w-3.5" />
+                    Pitch
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onCopy(firstVariant.texto, `speech-${topOffer.oferta}`)}
+                    className="flex items-center gap-1 text-[10px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
+                  >
+                    {copiedKey === `speech-${topOffer.oferta}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                    {copiedKey === `speech-${topOffer.oferta}` ? 'Copiado' : 'Copiar'}
+                  </button>
+                </div>
+                <p className="text-xs leading-relaxed text-navy-900 dark:text-slate-200">{firstVariant.texto}</p>
+                <span className="mt-1.5 block text-[10px] text-slate-400 dark:text-slate-500">{firstVariant.variante}</span>
+              </div>
             )}
-          </div>
-        )}
 
-        {/* Llamada en vivo */}
-        {liveCopilot.length > 0 && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              <Phone className="h-3.5 w-3.5" />
-              Llamada en vivo · {liveCopilot.length}
-            </p>
-            <div className="max-h-64 space-y-2.5 overflow-y-auto pr-1">
-              {liveCopilot.map((e, i) => {
-                if (e.type === 'stt') {
-                  const esCliente = e.speaker !== 'asesor'
-                  return (
-                    <div
-                      key={i}
-                      className={`rounded-lg border px-3 py-2 ${
-                        esCliente
-                          ? 'border-cyan-100 bg-cyan-50/60 dark:border-cyan-400/20 dark:bg-cyan-500/10'
-                          : 'border-slate-100 bg-slate-50/70 dark:border-white/5 dark:bg-navy-950/40'
-                      }`}
+            {/* Rebate */}
+            {showRebate && topOffer && firstVariant && (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <BadgePercent className="h-3.5 w-3.5" />
+                    Rebate
+                  </p>
+                  {rebateVariant && (
+                    <button
+                      type="button"
+                      onClick={() => onCopy(rebateVariant.texto, `rebate-${topOffer.oferta}`)}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-300 dark:hover:text-cyan-200"
                     >
-                      <span className={`text-[9px] font-bold uppercase tracking-wide ${esCliente ? 'text-cyan-600 dark:text-cyan-300' : 'text-slate-400 dark:text-slate-500'}`}>
-                        {esCliente ? 'Cliente' : 'Asesor'}
-                      </span>
-                      <p className="mt-0.5 text-[11px] leading-relaxed text-navy-900 dark:text-slate-200">{e.text}</p>
-                    </div>
-                  )
-                }
-                return (
+                      {copiedKey === `rebate-${topOffer.oferta}` ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {copiedKey === `rebate-${topOffer.oferta}` ? 'Copiado' : 'Copiar'}
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 dark:text-slate-300">
+                  De <strong className="text-navy-900 dark:text-white">S/ {k.montoProm.toFixed(2)}</strong> a{' '}
+                  <strong className="text-navy-900 dark:text-white">S/ {k.precioProyectado.toFixed(2)}</strong> ·{' '}
+                  <strong className="text-emerald-600 dark:text-emerald-300">−S/ {k.ahorroMensual.toFixed(2)}/mes</strong>
+                </p>
+                {rebateVariant ? (
+                  <>
+                    <p className="mt-1.5 text-xs leading-relaxed text-navy-900 dark:text-slate-200">{rebateVariant.texto}</p>
+                    <span className="mt-1 block text-[10px] text-slate-400 dark:text-slate-500">{rebateVariant.variante}</span>
+                  </>
+                ) : (
+                  <p className="mt-1.5 text-[11px] text-slate-400 dark:text-slate-500">Genera el pitch para obtener el rebate.</p>
+                )}
+              </div>
+            )}
+
+            {/* Sugerencias del copilot durante la llamada */}
+            {coachCards.length > 0 && (
+              <div className="space-y-2">
+                {coachCards.slice(-4).map((e, i) => (
                   <div key={i} className="rounded-lg border border-slate-100 bg-slate-50/70 p-3 dark:border-white/5 dark:bg-navy-950/40">
                     <div className="mb-1.5 flex items-center justify-between gap-2">
                       <span
@@ -263,7 +361,7 @@ export default function NexabotCopilot({
                           e.objection ? OBJECTION_STYLE[e.objection.type] || OBJECTION_STYLE.otro : OBJECTION_STYLE.otro
                         }`}
                       >
-                        {e.objection?.label || (e.speaker === 'asesor' ? 'Feedback' : 'Escuchando')}
+                        {e.objection?.label || (e.speaker === 'asesor' ? 'Feedback' : 'Sugerencia')}
                       </span>
                       <span className="text-[10px] text-slate-400 dark:text-slate-500">
                         {new Date(e.time).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}
@@ -278,124 +376,87 @@ export default function NexabotCopilot({
                       <p className="text-xs leading-relaxed text-navy-900 dark:text-slate-200">{e.suggestion}</p>
                     )}
                   </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
+                ))}
+              </div>
+            )}
 
-        {/* Resumen de la llamada: lo que dijo el cliente + pitch/rebate */}
-        {clientLines.length > 0 && (
-          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-            <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              <List className="h-3.5 w-3.5" />
-              Resumen del cliente
-            </p>
-            <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
-              {clientLines.map((line, i) => (
-                <p
-                  key={i}
-                  className="rounded-md bg-white px-2.5 py-1.5 text-[11px] leading-relaxed text-navy-900 dark:bg-white/5 dark:text-slate-200"
-                >
-                  {line.text}
-                </p>
-              ))}
-            </div>
-            {topOffer && (
-              <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+            {/* Chat con contexto de la conversacion */}
+            <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
+              <p className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                Pregunta sobre la conversación o los planes
+              </p>
+              <div ref={chatRef} className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                {messages.length === 0 && !sending && (
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                    Ej: “¿qué objeción puso?”, “dame un rebate para lo que dijo”…
+                  </p>
+                )}
+                {messages.map((m, i) => (
+                  <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                        m.role === 'user'
+                          ? 'bg-cyan-500 text-white'
+                          : 'bg-slate-100 text-navy-900 dark:bg-white/10 dark:text-slate-200'
+                      }`}
+                    >
+                      <p>{m.text}</p>
+                      {m.source && (
+                        <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide ${SOURCE_STYLE[m.source] || SOURCE_STYLE.local}`}>
+                          {m.source}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {sending && (
+                  <div className="flex justify-start">
+                    <div className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/10">
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:120ms]" />
+                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:240ms]" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {QUICK_PROMPTS.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => send(q)}
+                    disabled={!canChat}
+                    className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-2.5 flex items-center gap-2">
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && send()}
+                  disabled={!canChat}
+                  placeholder={canChat ? 'Escribe tu pregunta...' : 'Sin permiso'}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-navy-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-slate-500"
+                />
                 <button
                   type="button"
-                  onClick={() => onGenerateSpeech(topOffer)}
-                  disabled={speechLoadingNow || !canSpeech}
-                  className="flex items-center justify-center gap-1 rounded-md bg-cyan-500 px-2 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
+                  onClick={() => send()}
+                  disabled={!draft.trim() || sending || !canChat}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500 text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
+                  aria-label="Enviar a Nexabot"
                 >
-                  {speechLoadingNow ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-                  {speechLoadingNow ? 'Generando' : 'Generar pitch'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowRebate((v) => !v)}
-                  disabled={!firstVariant}
-                  className="flex items-center justify-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-[10px] font-semibold text-navy-900 transition-colors hover:border-cyan-400 hover:text-cyan-600 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
-                >
-                  <BadgePercent className="h-3 w-3" />
-                  {showRebate ? 'Ocultar' : 'Ver rebate'}
+                  <Send className="h-4 w-4" />
                 </button>
               </div>
-            )}
-          </div>
+            </div>
+          </>
         )}
-
-        {/* Chat */}
-        <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-white/5 dark:bg-white/5">
-          <div ref={chatRef} className="max-h-44 space-y-2 overflow-y-auto pr-1">
-            {messages.length === 0 && !sending && (
-              <p className="text-[11px] text-slate-400 dark:text-slate-500">Pregúntale lo que necesites: planes, ofertas, objeciones…</p>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-cyan-500 text-white'
-                      : 'bg-slate-100 text-navy-900 dark:bg-white/10 dark:text-slate-200'
-                  }`}
-                >
-                  <p>{m.text}</p>
-                  {m.source && (
-                    <span className={`mt-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide ${SOURCE_STYLE[m.source] || SOURCE_STYLE.local}`}>
-                      {m.source}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-            {sending && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 dark:bg-white/10">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:120ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-400 [animation-delay:240ms]" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {QUICK_PROMPTS.map((q) => (
-              <button
-                key={q}
-                type="button"
-                onClick={() => send(q)}
-                disabled={!canChat}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-2.5 flex items-center gap-2">
-            <input
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && send()}
-              disabled={!canChat}
-              placeholder={canChat ? 'Escribe tu pregunta...' : 'Sin permiso'}
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-navy-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-slate-500"
-            />
-            <button
-              type="button"
-              onClick={() => send()}
-              disabled={!draft.trim() || sending || !canChat}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-cyan-500 text-white transition-colors hover:bg-cyan-600 disabled:opacity-40"
-              aria-label="Enviar a Nexabot"
-            >
-              <Send className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
       </div>
     </aside>
   )

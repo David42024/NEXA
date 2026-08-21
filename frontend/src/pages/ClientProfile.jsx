@@ -227,7 +227,9 @@ export default function ClientProfile() {
       setLiveMood({ mood: event.mood, score: event.score, time: Date.now() })
       return
     }
-    setLiveCopilot((prev) => [...prev.slice(-8), { ...event, time: Date.now() }])
+    // Historial completo de la llamada: alimenta el chat "Llamada" y da
+    // contexto a las preguntas del chat Copilot IA.
+    setLiveCopilot((prev) => [...prev.slice(-200), { ...event, time: Date.now() }])
   }
 
   // El backend avanza el E2E solo durante la llamada; aquí solo se refleja en vivo.

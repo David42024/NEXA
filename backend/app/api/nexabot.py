@@ -52,7 +52,9 @@ async def nexabot_chat(
     if top_offer:
         chat_engine._fill_top_offer(ctx, top_offer)
 
-    result = await chat_engine.generate_nexabot_reply(ctx, payload.message)
+    result = await chat_engine.generate_nexabot_reply(
+        ctx, payload.message, transcript=payload.transcript
+    )
 
     if result["source"] != "groq":
         log_event(
