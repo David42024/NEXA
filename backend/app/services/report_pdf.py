@@ -150,38 +150,63 @@ class PDF:
         stream_objs = [obj_f2 + 1 + i for i in range(n)]
         total_objs = stream_objs[-1] if stream_objs else obj_f2
 
-        lines = ["%PDF-1.4"]
-        offsets = [0]
+        out = bytearray()
+        offsets: dict[int, int] = {}
 
-        def emit(body: str):
-            offsets.append(len("\n".join(lines).encode("latin-1")) + 1)
-            lines.append(f"{len(offsets) - 1} 0 obj")
-            lines.append(body)
-            lines.append("endobj")
+        def begin_obj(num: int):
+            offsets[num] = len(out)
+            out.extend(f"{num} 0 obj\n".encode("latin-1"))
 
-        emit(f"<< /Type /Catalog /Pages 2 0 R >>")
+        def end_obj():
+            out.extend(b"endobj\n")
+
+        out.extend(b"%PDF-1.4\n")
+
+        begin_obj(1)
+        out.extend(b"<< /Type /Catalog /Pages 2 0 R >>\n")
+        end_obj()
+
         kids = " ".join(f"{p} 0 R" for p in page_objs)
-        emit(f"<< /Type /Pages /Kids [{kids}] /Count {n} >>")
-        for i, po in enumerate(page_objs):
-            emit(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] "
-                f"/Resources << /Font << /F1 {obj_f1} 0 R /F2 {obj_f2} 0 R >> >> "
-                f"/Contents {stream_objs[i]} 0 R >>"
-            )
-        emit("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-        emit("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>")
-        for i, so in enumerate(stream_objs):
-            emit(f"<< /Length {len(streams[i])} /Filter /FlateDecode >>\nstream\n")
-            # stream body must follow the dict object; append raw binary
-            lines.append(streams[i].decode("latin-1"))
-            lines.append("endstream")
+        begin_obj(2)
+        out.extend(f"<< /Type /Pages /Kids [{kids}] /Count {n} >>\n".encode("latin-1"))
+        end_obj()
 
-        lines.append("trailer")
-        lines.append(f"<< /Size {total_objs + 1} /Root 1 0 R >>")
-        lines.append("startxref")
-        lines.append(str(offsets[-1]))
-        lines.append("%%EOF")
-        return "\n".join(lines).encode("latin-1")
+        for i, po in enumerate(page_objs):
+            begin_obj(po)
+            out.extend(
+                (
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] "
+                    f"/Resources << /Font << /F1 {obj_f1} 0 R /F2 {obj_f2} 0 R >> >> "
+                    f"/Contents {stream_objs[i]} 0 R >>\n"
+                ).encode("latin-1")
+            )
+            end_obj()
+
+        begin_obj(obj_f1)
+        out.extend(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\n")
+        end_obj()
+        begin_obj(obj_f2)
+        out.extend(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>\n")
+        end_obj()
+
+        for i, so in enumerate(stream_objs):
+            begin_obj(so)
+            out.extend(
+                f"<< /Length {len(streams[i])} /Filter /FlateDecode >>\nstream\n".encode("latin-1")
+            )
+            out.extend(streams[i])
+            out.extend(b"\nendstream\n")
+            end_obj()
+
+        xref_pos = len(out)
+        out.extend(f"xref\n0 {total_objs + 1}\n".encode("latin-1"))
+        out.extend(b"0000000000 65535 f \n")
+        for num in range(1, total_objs + 1):
+            out.extend(f"{offsets.get(num, 0):010d} 00000 n \n".encode("latin-1"))
+        out.extend(
+            f"trailer\n<< /Size {total_objs + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF".encode("latin-1")
+        )
+        return bytes(out)
 
 
 def _evidence_text(evidence_type: str | None) -> str:
