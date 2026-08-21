@@ -288,3 +288,37 @@ class SystemLogOut(BaseModel):
     user_id: Optional[int] = None
     detail: Optional[str] = None
     created_at: Optional[str] = None
+
+
+# ---------- Incidencias ----------
+class IncidentCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    category: str = "otro"  # sistema | llamada | datos | cliente | otro
+    severity: str = "media"  # baja | media | alta | critica
+    client_id: Optional[str] = None
+
+
+class IncidentUpdate(BaseModel):
+    status: Optional[str] = None  # abierta | resuelta
+    resolution_note: Optional[str] = None
+
+
+class IncidentOut(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    category: str
+    severity: str
+    status: str
+    client_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+    resolver_name: Optional[str] = None
+    created_at: Optional[str] = None
+    resolved_at: Optional[str] = None
+    resolution_note: Optional[str] = None
+
+
+class IncidentsListResponse(BaseModel):
+    items: List[IncidentOut]
+    stats: Dict[str, int]

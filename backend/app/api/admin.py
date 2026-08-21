@@ -1,6 +1,6 @@
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -227,6 +227,89 @@ def get_system_logs(
         )
         for r in rows
     ]
+
+
+# ---------- Incidencias ----------
+@router.get("/incidents", response_model=schemas.IncidentsListResponse)
+def list_incidents(
+    status: str = Query("todas"),
+    severity: str = Query("todas"),
+    category: str = Query("todas"),
+    n: int = Query(100),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("view_system_logs")),
+):
+    """Panel de incidencias: listado filtrable + contadores globales."""
+    from app.api.incidents import VALID_CATEGORIES, VALID_SEVERITIES, VALID_STATUSES, _incident_out
+
+    q = db.query(models.Incident).order_by(models.Incident.id.desc())
+    if status in VALID_STATUSES:
+        q = q.filter(models.Incident.status == status)
+    if severity in VALID_SEVERITIES:
+        q = q.filter(models.Incident.severity == severity)
+    if category in VALID_CATEGORIES:
+        q = q.filter(models.Incident.category == category)
+    n = max(1, min(n, 200))
+    rows = q.limit(n).all()
+
+    total = db.query(models.Incident.id).count()
+    abiertas = db.query(models.Incident.id).filter(models.Incident.status == "abierta").count()
+    criticas = (
+        db.query(models.Incident.id)
+        .filter(models.Incident.status == "abierta", models.Incident.severity == "critica")
+        .count()
+    )
+    resueltas = total - abiertas
+    stats = {
+        "total": total,
+        "abiertas": abiertas,
+        "criticas_abiertas": criticas,
+        "resueltas": resueltas,
+    }
+    return schemas.IncidentsListResponse(items=[_incident_out(db, r) for r in rows], stats=stats)
+
+
+@router.patch("/incidents/{incident_id}", response_model=schemas.IncidentOut)
+def update_incident(
+    incident_id: int,
+    payload: schemas.IncidentUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("view_system_logs")),
+):
+    """Gestion de la incidencia: resolver / reabrir con nota de resolucion."""
+    from datetime import datetime
+
+    from app.api.incidents import _incident_out
+
+    inc = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    if payload.status is not None:
+        if payload.status not in ("abierta", "resuelta"):
+            raise HTTPException(status_code=422, detail="Estado invalido: usa 'abierta' o 'resuelta'")
+        inc.status = payload.status
+        if payload.status == "resuelta":
+            inc.resolved_at = datetime.now()
+            inc.resolved_by = current_user.id
+            if payload.resolution_note and payload.resolution_note.strip():
+                inc.resolution_note = payload.resolution_note.strip()
+        else:
+            inc.resolved_at = None
+            inc.resolved_by = None
+            if payload.resolution_note is not None:
+                inc.resolution_note = payload.resolution_note.strip() or None
+    elif payload.resolution_note is not None:
+        inc.resolution_note = payload.resolution_note.strip() or None
+
+    log_event(
+        db, "incident_status_change",
+        f"Incidencia #{inc.id} -> {inc.status}" + (f" por {current_user.name or current_user.email}" if inc.status == "resuelta" else ""),
+        current_user.id,
+    )
+    db.commit()
+    db.refresh(inc)
+    return _incident_out(db, inc)
 
 
 @router.get("/kpis")

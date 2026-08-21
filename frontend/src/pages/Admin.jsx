@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import api from '../utils/api'
+import IncidentsPanel from '../components/IncidentsPanel.jsx'
 
 const ALL_PERMISSIONS = [
   'view_dashboard', 'search_client', 'view_client_profile', 'view_recommendation',
@@ -75,6 +76,9 @@ export default function Admin() {
       <p className="label-eyebrow">Administración</p>
       <h1 className="font-display font-bold text-2xl text-navy-900 mb-1">Roles y permisos</h1>
       <p className="text-sm text-slate-500 mb-6">Configurable en tiempo real, sin reiniciar el sistema.</p>
+
+      {/* Incidencias operativas */}
+      <IncidentsPanel />
 
       {/* Metas comerciales */}
       <div className="card p-6 mb-6 max-w-xl">

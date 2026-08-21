@@ -121,6 +121,28 @@ class SystemLog(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+class Incident(Base):
+    """Incidencia operativa: problema reportado por un usuario y gestionado por admin.
+
+    Categorias: sistema | llamada | datos | cliente | otro
+    Severidad : baja | media | alta | critica
+    Estado    : abierta | resuelta
+    """
+    __tablename__ = "incidents"
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(150), nullable=False)
+    description = Column(Text)
+    category = Column(String(30), nullable=False, default="otro", index=True)
+    severity = Column(String(20), nullable=False, default="media", index=True)
+    status = Column(String(20), nullable=False, default="abierta", index=True)
+    client_id = Column(String(10), ForeignKey("clients.id"), nullable=True)
+    reported_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    resolved_at = Column(TIMESTAMP, nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    resolution_note = Column(Text)
+
+
 class AppConfig(Base):
     """Configuracion en caliente persistida (ej. umbrales del motor NBO)."""
     __tablename__ = "app_config"
