@@ -136,6 +136,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
   const [callInfo, setCallInfo] = useState(null)
   const [muted, setMuted] = useState(true) // el asesor arranca silenciado
   const [recordingUrl, setRecordingUrl] = useState(null)
+  const [localRecordingUrl, setLocalRecordingUrl] = useState(null) // respaldo sin voz del bot
   const [mode, setMode] = useState('bot') // bot | asesor
   const { duration, startTimer, stopTimer } = useTimer()
   const { streamRef, stopStream } = useStreamCleanup()
@@ -209,15 +210,14 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
       recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data) }
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: 'audio/webm' })
-        if (serverRecordingRef.current) {
-          // Ya llego la grabacion completa del cliente (con el bot): no la pises.
-          recMediaRef.current = null
-          try { actx.close() } catch { /* ya cerrado */ }
-          return
-        }
         if (recordingUrlRef.current) URL.revokeObjectURL(recordingUrlRef.current)
         recordingUrlRef.current = URL.createObjectURL(blob)
-        setRecordingUrl(recordingUrlRef.current)
+        setLocalRecordingUrl(recordingUrlRef.current)
+        if (!serverRecordingRef.current) {
+          // Solo se ofrece el blob local si no existe la grabacion completa del
+          // servidor (la unica que incluye la voz del bot).
+          setRecordingUrl(recordingUrlRef.current)
+        }
         recMediaRef.current = null
         try { actx.close() } catch { /* ya cerrado */ }
       }
@@ -328,6 +328,12 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
           if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
         } else if (msg.type === 'ended') {
           endedRef.current = true
+          // La grabacion con la voz del bot se sube al servidor justo despues del
+          // cierre: apuntar ahi ANTES de detener el recorder local (que solo
+          // captura los dos microfonos WebRTC, nunca al bot).
+          serverRecordingRef.current = true
+          const id = callIdRef.current || callInfo?.call_id
+          if (id) setRecordingUrl(`${import.meta.env.VITE_API_URL || ''}/api/calls/${id}/recording`)
           stopTimer()
           cleanup()
           setPhaseAll('ended')
@@ -360,6 +366,11 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     wsRef.current?.send(JSON.stringify({ type: 'end', reason }))
     wsRef.current?.close()
     endedRef.current = true
+    // Apunta a la grabacion completa del servidor (con la voz del bot) antes de
+    // detener el recorder local; el cliente la sube tras el cierre.
+    serverRecordingRef.current = true
+    const id = callIdRef.current || callInfo?.call_id
+    if (id) setRecordingUrl(`${import.meta.env.VITE_API_URL || ''}/api/calls/${id}/recording`)
     stopTimer()
     cleanup()
     setPhaseAll('ended')
@@ -375,8 +386,9 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     if (recordingUrlRef.current) {
       URL.revokeObjectURL(recordingUrlRef.current)
       recordingUrlRef.current = null
-      setRecordingUrl(null)
     }
+    setRecordingUrl(null)
+    setLocalRecordingUrl(null)
     stopTimer()
   }
 
@@ -390,7 +402,7 @@ export function useAsesorCall({ clientId, onCopilotEvent, onOffering, onRemoteSt
     setMuted(!enable)
   }
 
-  return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, mode, switchMode, start, toggleMute, hangup, reset }
+  return { phase, error, callInfo, duration, muted, recordingUrl, localRecordingUrl, sttSupported, mode, switchMode, start, toggleMute, hangup, reset }
 }
 
 /**
@@ -445,9 +457,12 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
       connect(local)   // voz del cliente
       if (botEl) {
         // El audio del bot pasa por el grafo: se oye (destination) y se graba (dest).
-        const botSrc = actx.createMediaElementSource(botEl)
-        botSrc.connect(dest)
-        botSrc.connect(actx.destination)
+        // Si el elemento ya esta en otro grafo, se graba igual sin la voz del bot.
+        try {
+          const botSrc = actx.createMediaElementSource(botEl)
+          botSrc.connect(dest)
+          botSrc.connect(actx.destination)
+        } catch { /* sin captura del bot */ }
       }
       const recorder = new MediaRecorder(dest.stream)
       const chunks = []

@@ -71,8 +71,9 @@ export default function LiveCallPanel({
       .catch(() => {})
   }
 
-  // Descarga el audio de la llamada: blob local (fallback) o el del backend
-  // (grabacion completa del cliente, que incluye la voz del bot).
+  // Descarga el audio de la llamada: primero la grabacion completa del backend
+  // (cliente + asesor + voz del bot); si aun no esta, cae al blob local
+  // (solo microfonos WebRTC, sin el bot).
   function downloadRecording() {
     const url = call.recordingUrl
     if (!url) return
@@ -86,15 +87,20 @@ export default function LiveCallPanel({
       a.remove()
       setTimeout(() => URL.revokeObjectURL(objUrl), 4000)
     }
-    if (url.startsWith('blob:')) {
-      fetch(url).then((r) => r.blob()).then(save).catch(() => {})
-      return
+    const fromBlob = (u) => fetch(u).then((r) => r.blob()).then(save)
+    const fromServer = (u) => {
+      const token = localStorage.getItem('nexa_token')
+      return fetch(u, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+        .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.blob() })
+        .then(save)
     }
-    const token = localStorage.getItem('nexa_token')
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.blob() })
-      .then(save)
-      .catch(() => {})
+    const fallback = call.localRecordingUrl
+    const attempt = url.startsWith('blob:') ? fromBlob(url) : fromServer(url)
+    if (fallback && !url.startsWith('blob:')) {
+      attempt.catch(() => fromBlob(fallback)).catch(() => {})
+    } else {
+      attempt.catch(() => {})
+    }
   }
 
   const call = useAsesorCall({

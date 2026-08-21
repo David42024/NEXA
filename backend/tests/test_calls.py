@@ -132,6 +132,35 @@ def test_grabacion_subida_por_cliente_y_descargada_por_asesor(client):
     assert resp.content == b"audio-bytes"
 
 
+def test_grabacion_subida_tras_colar_gracia_de_sesion(client):
+    """El upload del cliente llega justo tras el 'ended' (el recorder se detiene
+    con ese evento): la sesion debe sobrevivir en gracia para que la grabacion
+    completa (con la voz del bot) no se pierda con un 401."""
+    token, data = _start(client)
+    call_id = data["call_id"]
+
+    with client.websocket_connect(f"/api/calls/ws/{call_id}?role=asesor&token={token}") as asesor_ws:
+        with client.websocket_connect(
+            f"/api/calls/ws/{call_id}?role=cliente&token={data['cliente_token']}"
+        ) as cliente_ws:
+            _recv_until(asesor_ws, "status")  # active
+            asesor_ws.send_json({"type": "end", "reason": "ended"})
+            assert _recv_until(cliente_ws, "ended")["type"] == "ended"
+            assert _recv_until(asesor_ws, "ended")["type"] == "ended"
+
+    # Sesion ya cerrada: el upload tardio del cliente se acepta igual.
+    resp = client.post(
+        f"/api/calls/{call_id}/recording?token={data['cliente_token']}",
+        files={"file": ("llamada.webm", b"audio-con-bot", "audio/webm")},
+    )
+    assert resp.status_code == 200
+
+    # Y el asesor puede descargarla despues del cierre.
+    resp = client.get(f"/api/calls/{call_id}/recording", headers=auth(token))
+    assert resp.status_code == 200
+    assert resp.content == b"audio-con-bot"
+
+
 def test_ws_relay_de_senalizacion(client):
     """Asesor envia offer; cliente recibe offer, responde answer; ICE se reenvia."""
     token, data = _start(client)

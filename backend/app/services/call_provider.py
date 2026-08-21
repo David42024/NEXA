@@ -39,6 +39,12 @@ OBJECION_LABELS = {
     "otro": "Otra",
 }
 
+# Tras colgar, la sesion sobrevive este tiempo para que el cliente alcance a
+# subir la grabacion completa (con la voz del bot) y el asesor descargarla:
+# el recorder se detiene recien con el evento "ended", asi que el upload
+# SIEMPRE llega despues del cierre.
+RECORDING_GRACE_SECONDS = 600
+
 OBJECION_RULES = [
     ("precio", ["caro", "precio", "cuesta", "cost", "no me alcanza", "presupuesto", "mucho dinero", "mas caro"]),
     ("competencia", ["otro operador", "claro", "entel", "bitel", "otra empresa", "mi compania", "mi compañia", "ya tengo con"]),
@@ -266,6 +272,10 @@ class P2PWebRTCProvider:
         await self._send(sess.asesor_ws, {"type": "acceptance", "text": text})
 
     async def attach(self, sess, role, ws, db=None):
+        if sess.state == "ended":
+            # Sesion en gracia (solo para la grabacion): no se reactiva.
+            await ws.close(code=1008)
+            return
         if role == "asesor":
             sess.asesor_ws = ws
             await self._send(ws, {"type": "status", "state": sess.state})
@@ -528,7 +538,12 @@ class P2PWebRTCProvider:
         msg = {"type": "ended", "reason": reason, "duration": duration, "offering": offering}
         await self._send(sess.asesor_ws, msg)
         await self._send(sess.cliente_ws, msg)
-        self._calls.pop(sess.id, None)
+        # No se elimina la sesion de inmediato: la grabacion del cliente (que
+        # incluye la voz del bot) se sube justo tras el "ended". Se libera
+        # pasado el periodo de gracia.
+        asyncio.get_running_loop().call_later(
+            RECORDING_GRACE_SECONDS, self._calls.pop, sess.id, None
+        )
 
 
 provider = P2PWebRTCProvider()
