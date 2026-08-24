@@ -92,6 +92,32 @@ def test_toggle_del_autopiloto_del_bot(client):
     assert client.patch("/api/chats/noexiste/bot", json={"enabled": True}, headers=h).status_code == 404
 
 
+def test_el_chat_es_persistente_y_el_link_no_cambia(client):
+    data1, token = _create_chat(client)
+    first_id = data1["messages"][0]["id"]
+
+    # Reabrir el modal recupera el MISMO chat con su historial (link estable)
+    data2, _ = _create_chat(client)
+    assert data2["chat_id"] == data1["chat_id"]
+    assert [m["id"] for m in data2["messages"]] == [first_id]
+
+    # El cliente escribe por el mismo link y todo queda en el mismo hilo
+    client.post(f"/api/chats/{data2['chat_id']}/client-messages", json={"body": "hola de nuevo"})
+    hist = client.get(f"/api/chats/{data1['chat_id']}/messages").json()
+    assert [m["sender"] for m in hist] == ["bot", "cliente", "bot"]
+
+    # Otro asesor tiene su propio hilo independiente con el mismo cliente
+    data3, _ = _create_chat(client, email="supervisor@nexa.demo", password="supervisor123")
+    assert data3["chat_id"] != data1["chat_id"]
+
+    # El estado del autopiloto tambien persiste entre aperturas
+    h = auth(token)
+    client.patch(f"/api/chats/{data1['chat_id']}/bot", json={"enabled": False}, headers=h)
+    data4, _ = _create_chat(client)
+    assert data4["chat_id"] == data1["chat_id"]
+    assert data4["bot_enabled"] is False
+
+
 def test_validaciones_y_errores(client):
     token = login(client)
     h = auth(token)

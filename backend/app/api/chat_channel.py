@@ -76,8 +76,37 @@ async def create_chat(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Abrir un chat de contacto: genera el mensaje inicial automatico del bot."""
+    """Abrir (o reabrir) el chat de contacto con un cliente.
+
+    Persistente: 1 hilo por (asesor, cliente). Si ya existe, devuelve el MISMO
+    chat_id con su historial reciente (el link del cliente no cambia); si no,
+    crea uno nuevo generando el mensaje inicial automatico del bot.
+    """
     client, ctx = _client_ctx(db, payload.client_id)
+
+    prev = (
+        db.query(models.ChatMessage)
+        .filter(
+            models.ChatMessage.client_id == client.id,
+            models.ChatMessage.asesor_id == current_user.id,
+        )
+        .order_by(models.ChatMessage.id.desc())
+        .first()
+    )
+    if prev:
+        history = (
+            db.query(models.ChatMessage)
+            .filter(models.ChatMessage.chat_id == prev.chat_id)
+            .order_by(models.ChatMessage.id.desc())
+            .limit(50)
+            .all()
+        )
+        history.reverse()
+        return schemas.ChatCreatedResponse(
+            chat_id=prev.chat_id,
+            bot_enabled=_bot_enabled(db, prev.chat_id),
+            messages=[_out(m) for m in history],
+        )
 
     chat_id = uuid.uuid4().hex[:16]
     opening = await chat_engine.generate_client_chat_opening(ctx)
