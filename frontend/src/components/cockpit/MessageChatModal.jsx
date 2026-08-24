@@ -29,7 +29,15 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
         setMessages(data.messages)
         lastIdRef.current = data.messages.length ? data.messages[data.messages.length - 1].id : 0
       })
-      .catch(() => alive && setError('No se pudo abrir el chat. Intenta de nuevo.'))
+      .catch((e) => {
+        if (!alive) return
+        const status = e?.response?.status
+        setError(
+          status === 404
+            ? 'El backend no tiene el canal de mensajes: reinicia el servidor para cargar el código nuevo.'
+            : `No se pudo abrir el chat${status ? ` (error ${status})` : ''}. Intenta de nuevo.`
+        )
+      })
     return () => { alive = false }
   }, [clientId])
 
