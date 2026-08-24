@@ -15,6 +15,7 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [botOn, setBotOn] = useState(null) // null = desconocido hasta abrir el chat
 
   const lastIdRef = useRef(0)
   const scrollRef = useRef(null)
@@ -27,6 +28,7 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
         if (!alive) return
         setChatId(data.chat_id)
         setMessages(data.messages)
+        setBotOn(data.bot_enabled !== false)
         lastIdRef.current = data.messages.length ? data.messages[data.messages.length - 1].id : 0
       })
       .catch((e) => {
@@ -102,9 +104,30 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
             <p className="label-eyebrow">Contacto por mensaje</p>
             <p className="truncate font-display font-semibold text-navy-900 dark:text-white">{clientName}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-cyan-600" aria-label="Cerrar">
-            <X size={18} />
-          </button>
+          <div className="flex shrink-0 items-center gap-2.5">
+            {/* Deslizante Nexabot activo/pausado */}
+            <span className={`text-[10px] font-bold uppercase tracking-wide ${botOn ? 'text-emerald-600 dark:text-emerald-300' : 'text-slate-400'}`}>
+              Nexabot {botOn ? 'activo' : 'en pausa'}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!botOn}
+              disabled={!chatId || botOn === null}
+              onClick={toggleBot}
+              className={`relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
+                botOn ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-white/20'
+              }`}
+              title={botOn ? 'Pausar respuestas automáticas' : 'Activar respuestas automáticas'}
+            >
+              <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                botOn ? 'translate-x-4' : ''
+              }`} />
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-cyan-600" aria-label="Cerrar">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Link para el cliente */}
@@ -127,8 +150,32 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
           )}
           {!chatId && !error && <p className="py-6 text-center text-xs text-slate-400">Abriendo conversación…</p>}
           {messages.map((m) => {
+            if (m.sender === 'system') {
+              return (
+                <p key={m.id} className="text-center text-[10px] font-medium text-slate-400">
+                  {m.body}
+                </p>
+              )
+            }
             const st = SENDER_STYLE[m.sender] || SENDER_STYLE.bot
-            return (
+  async function toggleBot() {
+    const next = !botOn
+    setBotOn(next)
+    try {
+      await api.patch(`/api/chats/${chatId}/bot`, { enabled: next })
+      setMessages((prev) => [...prev, {
+        id: `local-${Date.now()}`,
+        sender: 'system',
+        body: next
+          ? 'Nexabot activado: responde los mensajes del cliente por ti.'
+          : 'Nexabot en pausa: tú respondes los mensajes del cliente.',
+      }])
+    } catch {
+      setBotOn(!next)
+    }
+  }
+
+  return (
               <div key={m.id} className={`flex ${st.wrap}`}>
                 <div className={`max-w-[85%] rounded-xl border px-3 py-2 ${st.bubble}`}>
                   {st.label && (
@@ -153,7 +200,7 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={chatId ? 'Escribe como asesor… (el bot deja de responder)' : 'Esperando chat…'}
+            placeholder={chatId ? (botOn ? 'Escribe como asesor… (pausa el bot)' : 'Escribe como asesor (modo manual)…') : 'Esperando chat…'}
             disabled={!chatId || sending}
             className="input flex-1"
             maxLength={4000}
@@ -165,7 +212,9 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
 
         <p className="flex items-center gap-1.5 px-4 pb-3 text-[10px] text-slate-400">
           <MessageSquareText size={11} />
-          Nexabot saluda y responde solo; si escribes tú, la conversación queda en tus manos.
+          {botOn
+            ? 'Nexabot saluda y responde solo; si escribes tú, se pausa automáticamente.'
+            : 'Modo manual: tú respondes cada mensaje. Activa Nexabot para que responda solo.'}
         </p>
       </div>
     </div>

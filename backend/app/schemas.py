@@ -338,6 +338,7 @@ class ChatCreate(BaseModel):
 
 class ChatCreatedResponse(BaseModel):
     chat_id: str
+    bot_enabled: bool = True
     messages: List[ChatMessageOut]
 
 
@@ -347,3 +348,11 @@ class ClientChatMessage(BaseModel):
 
 class ClientChatReplyResponse(BaseModel):
     messages: List[ChatMessageOut]
+
+
+class ChatBotToggle(BaseModel):
+    enabled: bool
+
+
+class ChatBotStateOut(BaseModel):
+    enabled: bool

@@ -42,6 +42,12 @@ def _chat_head(db: Session, chat_id: str):
     )
 
 
+def _bot_enabled(db: Session, chat_id: str) -> bool:
+    """Autopiloto Nexabot del chat (sin registro = activo)."""
+    row = db.get(models.ChatBotState, chat_id)
+    return True if row is None else row.bot_enabled
+
+
 def _client_ctx(db: Session, client_id: str):
     client = db.query(models.Client).filter(models.Client.id == client_id).first()
     if not client:
@@ -93,7 +99,7 @@ async def create_chat(
         )
     db.commit()
     db.refresh(msg)
-    return schemas.ChatCreatedResponse(chat_id=chat_id, messages=[_out(msg)])
+    return schemas.ChatCreatedResponse(chat_id=chat_id, bot_enabled=True, messages=[_out(msg)])
 
 
 @router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessageOut])
@@ -137,8 +143,8 @@ async def post_client_message(
     db.add(msg)
 
     bot_msg = None
-    # El bot responde salvo que el asesor haya tomado la conversacion.
-    if last.sender != "asesor":
+    # El bot responde solo mientras su autopiloto este activo.
+    if _bot_enabled(db, chat_id):
         _, ctx = _client_ctx(db, last.client_id)
         history = _history(db, chat_id, upto_id=last.id)
         result = await chat_engine.generate_client_chat_reply(ctx, body, history=history)
@@ -185,7 +191,42 @@ def post_asesor_message(
         sender="asesor", body=body[:4000],
     )
     db.add(msg)
-    log_event(db, "chat_asesor_message", f"Asesor respondio en chat con {head.client_id}", current_user.id)
+    # Escribir manualmente pausa el autopiloto (se puede reactivar con PATCH /bot).
+    state_row = db.get(models.ChatBotState, chat_id)
+    if state_row is None:
+        db.add(models.ChatBotState(chat_id=chat_id, bot_enabled=False))
+    else:
+        state_row.bot_enabled = False
+    log_event(db, "chat_asesor_message", f"Asesor respondio en chat con {head.client_id} (Nexabot en pausa)", current_user.id)
     db.commit()
     db.refresh(msg)
     return _out(msg)
+
+
+@router.patch("/{chat_id}/bot", response_model=schemas.ChatBotStateOut)
+def toggle_bot_autopilot(
+    chat_id: str,
+    payload: schemas.ChatBotToggle,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Alternar Nexabot entre activo (responde solo) y pausado (modo manual)."""
+    head = _chat_head(db, chat_id)
+    if not head:
+        raise HTTPException(status_code=404, detail="Chat no encontrado")
+    if head.asesor_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Este chat pertenece a otro asesor")
+
+    row = db.get(models.ChatBotState, chat_id)
+    if row is None:
+        row = models.ChatBotState(chat_id=chat_id, bot_enabled=payload.enabled)
+        db.add(row)
+    else:
+        row.bot_enabled = payload.enabled
+    log_event(
+        db, "chat_bot_toggle",
+        f"Nexabot {'activado' if payload.enabled else 'pausado'} en chat con {head.client_id}",
+        current_user.id,
+    )
+    db.commit()
+    return schemas.ChatBotStateOut(enabled=payload.enabled)

@@ -70,6 +70,28 @@ def test_polling_incremental_con_after(client):
     assert client.get(f"/api/chats/{data['chat_id']}/messages?after=999999").json() == []
 
 
+def test_toggle_del_autopiloto_del_bot(client):
+    data, token = _create_chat(client)
+    assert data["bot_enabled"] is True
+    url = f"/api/chats/{data['chat_id']}"
+    h = auth(token)
+
+    # Pausar: el cliente escribe y nadie responde automaticamente
+    assert client.patch(f"{url}/bot", json={"enabled": False}, headers=h).json() == {"enabled": False}
+    r1 = client.post(f"{url}/client-messages", json={"body": "sigues ahi?"})
+    assert [m["sender"] for m in r1.json()["messages"]] == ["cliente"]
+
+    # Reactivar: el bot vuelve a responder
+    assert client.patch(f"{url}/bot", json={"enabled": True}, headers=h).json()["enabled"] is True
+    r2 = client.post(f"{url}/client-messages", json={"body": "listo, te leo"})
+    assert [m["sender"] for m in r2.json()["messages"]] == ["cliente", "bot"]
+
+    # Otro usuario no puede alternar el autopiloto ajeno; chat inexistente 404
+    otro = auth(login(client, "supervisor@nexa.demo", "supervisor123"))
+    assert client.patch(f"{url}/bot", json={"enabled": False}, headers=otro).status_code == 403
+    assert client.patch("/api/chats/noexiste/bot", json={"enabled": True}, headers=h).status_code == 404
+
+
 def test_validaciones_y_errores(client):
     token = login(client)
     h = auth(token)

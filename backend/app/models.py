@@ -160,6 +160,14 @@ class ChatMessage(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+class ChatBotState(Base):
+    """Autopiloto Nexabot por chat: activo (responde solo) o pausado (manual)."""
+    __tablename__ = "chat_bot_states"
+    chat_id = Column(String(32), primary_key=True)
+    bot_enabled = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+
 class AppConfig(Base):
     """Configuracion en caliente persistida (ej. umbrales del motor NBO)."""
     __tablename__ = "app_config"
