@@ -106,8 +106,14 @@ _request_log = defaultdict(deque)
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     ip = request.client.host if request.client else "unknown"
+    path = request.url.path
+    # El polling de mensajes del chat (cliente + asesor sobre la misma ruta)
+    # equivale a trafico WebSocket: no se cuenta en el bucket, o dos ventanas
+    # abiertas agotan el limite y se corta la conversacion con 429.
+    if request.method == "GET" and path.startswith("/api/chats/") and path.endswith("/messages"):
+        return await call_next(request)
     now = time.time()
-    key = f"{ip}:{request.url.path}"
+    key = f"{ip}:{path}"
     window = _request_log[key]
     while window and now - window[0] > 60:
         window.popleft()
