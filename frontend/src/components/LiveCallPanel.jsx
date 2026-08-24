@@ -12,6 +12,7 @@ import {
   FileDown,
   Loader2,
   Bot,
+  MessageSquareText,
 } from 'lucide-react'
 import { useAsesorCall, fmtDuration } from '../hooks/useCall'
 
@@ -27,6 +28,7 @@ export default function LiveCallPanel({
   onCopilotEvent,
   onE2E,
   canStart = true,
+  onStartChat,
   onCallEnded,
   onCallReset,
 }) {
@@ -206,14 +208,26 @@ export default function LiveCallPanel({
 
       {call.phase === 'idle' && (
         <>
-          <button
-            onClick={call.start}
-            disabled={!canStart}
-            className="btn-primary flex w-full items-center justify-center gap-2 text-sm"
-          >
-            <Phone className="h-4 w-4" />
-            Llamar a {firstName}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={call.start}
+              disabled={!canStart}
+              className="btn-primary flex flex-1 items-center justify-center gap-2 text-sm"
+            >
+              <Phone className="h-4 w-4" />
+              Llamar a {firstName}
+            </button>
+            {onStartChat && (
+              <button
+                onClick={onStartChat}
+                className="btn-secondary flex items-center justify-center gap-2 text-sm"
+                title="Chat de mensajes con el cliente (Nexabot responde por ti)"
+              >
+                <MessageSquareText className="h-4 w-4" />
+                Chat
+              </button>
+            )}
+          </div>
           {!canStart && (
             <p className="mt-2 text-[11px] text-slate-400">
               No tienes permiso para iniciar ofrecimientos.

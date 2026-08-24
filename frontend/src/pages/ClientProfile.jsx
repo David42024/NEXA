@@ -12,6 +12,7 @@ import E2ETracking from '../components/cockpit/E2ETracking.jsx'
 import NexabotCopilot from '../components/cockpit/NexabotCopilot.jsx'
 import CommercialActions from '../components/cockpit/CommercialActions.jsx'
 import RejectModal from '../components/cockpit/RejectModal.jsx'
+import MessageChatModal from '../components/cockpit/MessageChatModal.jsx'
 import { useAuth } from '../context/AuthContext.jsx'
 
 const FEEDBACK_OPTIONS = [
@@ -106,6 +107,7 @@ export default function ClientProfile() {
   const [feedbackComment, setFeedbackComment] = useState('')
 
   const [dataModal, setDataModal] = useState(false)
+  const [msgChatOpen, setMsgChatOpen] = useState(false)
   const [missingField, setMissingField] = useState('')
   const [dataNotes, setDataNotes] = useState('')
   const [callResult, setCallResult] = useState('')
@@ -457,6 +459,7 @@ export default function ClientProfile() {
             onCopilotEvent={handleCopilotEvent}
             onE2E={handleOffering}
             canStart={canGenerate}
+            onStartChat={canSpeech ? () => setMsgChatOpen(true) : undefined}
             onCallEnded={() => setDataModal(true)}
             onCallReset={() => setLiveMood(null)}
           />
@@ -507,6 +510,15 @@ export default function ClientProfile() {
         onCancel={() => { setRejectingOffer(null); setRejectReason('') }}
         confirming={topOffer ? registering === topOffer.oferta : false}
       />
+
+      {/* Modal contacto por mensaje */}
+      {msgChatOpen && (
+        <MessageChatModal
+          clientId={id}
+          clientName={client.name}
+          onClose={() => setMsgChatOpen(false)}
+        />
+      )}
 
       {/* Modal feedback */}
       {feedbackModal && (

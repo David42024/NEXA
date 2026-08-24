@@ -322,3 +322,28 @@ class IncidentOut(BaseModel):
 class IncidentsListResponse(BaseModel):
     items: List[IncidentOut]
     stats: Dict[str, int]
+
+
+# ---------- Canal de mensajes con el cliente ----------
+class ChatMessageOut(BaseModel):
+    id: int
+    sender: str  # cliente | asesor | bot
+    body: str
+    created_at: Optional[str] = None
+
+
+class ChatCreate(BaseModel):
+    client_id: str
+
+
+class ChatCreatedResponse(BaseModel):
+    chat_id: str
+    messages: List[ChatMessageOut]
+
+
+class ClientChatMessage(BaseModel):
+    body: str
+
+
+class ClientChatReplyResponse(BaseModel):
+    messages: List[ChatMessageOut]

@@ -253,3 +253,161 @@ async def generate_nexabot_reply(ctx: Dict, message: str, transcript=None) -> Di
             source = "local"
             reply = _local_reply(ctx, message)
     return {"reply": reply, "source": source}
+
+
+# ---------- Chat directo con el cliente (canal de mensajes) ----------
+def latest_top_offer(db, client_id: str):
+    """Mejor recomendacion vigente del cliente (si existe) para contextualizar al asistente."""
+    from app import models
+    from app.services.nbo_engine import OFFER_CATALOG
+
+    rec = (
+        db.query(models.Recommendation)
+        .filter(models.Recommendation.client_id == client_id)
+        .order_by(models.Recommendation.id.desc())
+        .first()
+    )
+    if not rec or not rec.offer_id:
+        return None
+    offer = db.query(models.Offer).filter(models.Offer.id == rec.offer_id).first()
+    if not offer:
+        return None
+    catalog = next((o for o in OFFER_CATALOG if o["code"] == offer.code), None)
+    return {
+        "oferta": offer.name,
+        "precio": (catalog or {}).get("precio"),
+        "ahorro_pct": (catalog or {}).get("ahorro_pct"),
+        "probabilidad": rec.probability,
+    }
+
+
+_CLIENT_CHAT_BASE = (
+    "Eres el asistente virtual de Movistar Peru conversando por mensajes de texto con un cliente "
+    "(estilo WhatsApp). Objetivo: ayudarlo y ofrecerle la oferta recomendada de forma amable y breve. "
+    "Reglas: responde en espanol, MAXIMO 2-3 frases cortas tipo mensaje de texto, sin repetir saludos, "
+    "sin firmar, sin emojis. Usa los datos del cliente solo si aportan al mensaje. Nunca inventes "
+    "precios ni beneficios que no esten en el contexto.\n"
+)
+
+
+def _build_client_chat_prompt(ctx: Dict, instruction: str, history=None) -> str:
+    parts = [f"{_CLIENT_CHAT_BASE}Datos del cliente:\n{_context_text(ctx)}"]
+    if history:
+        lines = "\n".join(str(h) for h in history[-20:])
+        parts.append(f"Conversacion hasta ahora:\n{lines}")
+    parts.append(instruction)
+    return "\n\n".join(parts)
+
+
+async def generate_client_chat_opening(ctx: Dict) -> Dict:
+    """Primer mensaje automatico del chat con el cliente (presenta la oferta)."""
+    instruction = (
+        "Escribe el PRIMER mensaje de esta conversacion: presentate brevemente como asistente de "
+        "Movistar, menciona la oferta recomendada con su precio mensual y el ahorro, y cierra con una "
+        "pregunta corta que invite a responder."
+    )
+    prompt = _build_client_chat_prompt(ctx, instruction)
+    source = "groq"
+    try:
+        reply = await _call_groq(prompt)
+    except Exception as e:
+        logger.warning(f"Chat cliente Groq fallo: {e}")
+        source = "gemini"
+        try:
+            reply = await _call_gemini(prompt)
+        except Exception as e2:
+            logger.error(f"Chat cliente Gemini tambien fallo: {e2}")
+            source = "local"
+            reply = _local_client_opening(ctx)
+    return {"reply": reply, "source": source}
+
+
+async def generate_client_chat_reply(ctx: Dict, message: str, history=None) -> Dict:
+    """Respuesta automatica del bot a un mensaje del cliente."""
+    instruction = f'Mensaje del cliente: "{message}"\nResponde como Movistar:'
+    prompt = _build_client_chat_prompt(ctx, instruction, history=history)
+    source = "groq"
+    try:
+        reply = await _call_groq(prompt)
+    except Exception as e:
+        logger.warning(f"Chat cliente Groq fallo: {e}")
+        source = "gemini"
+        try:
+            reply = await _call_gemini(prompt)
+        except Exception as e2:
+            logger.error(f"Chat cliente Gemini tambien fallo: {e2}")
+            source = "local"
+            reply = _local_client_reply(ctx, message)
+    return {"reply": reply, "source": source}
+
+
+def _local_client_opening(ctx: Dict) -> str:
+    nombre = ctx["nombre"]
+    if ctx.get("oferta") and ctx.get("precio") is not None:
+        ahorro = ""
+        if ctx.get("ahorro_pct"):
+            ahorro = f" Ahorrarias cerca de {round(ctx['ahorro_pct'] * 100)}% en tu recibo."
+        return (
+            f"Hola {nombre}, te escribe el asistente de Movistar. Vimos tu plan actual y tenemos para ti "
+            f"{ctx['oferta']} por solo S/ {ctx['precio']:.2f} al mes.{ahorro} "
+            "Te cuento mas detalles?"
+        )
+    return (
+        f"Hola {nombre}, te escribe el asistente de Movistar. Queremos ofrecerte beneficios exclusivos "
+        "para tu linea. Te interesa conocerlos?"
+    )
+
+
+def _local_client_reply(ctx: Dict, message: str) -> str:
+    """Plantilla determinista orientada AL CLIENTE (fallback sin APIs)."""
+    msg = (message or "").lower()
+    nombre = ctx["nombre"]
+
+    if any(w in msg for w in ("hola", "buenas", "buenos dias", "buenas tardes", "buenas noches")):
+        return f"Hola {nombre}, un gusto. En que te puedo ayudar con tu linea Movistar?"
+
+    if any(w in msg for w in ("precio", "cuanto", "costo", "cost", "caro", "tarifa", "pago")):
+        if ctx.get("oferta") and ctx.get("precio") is not None:
+            monto = ctx.get("monto_facturado")
+            base = f"La oferta {ctx['oferta']} cuesta S/ {ctx['precio']:.2f} al mes"
+            if monto and ctx.get("ahorro_pct"):
+                base += (
+                    f"; hoy pagas S/ {monto:.2f}, asi que ahorrarias "
+                    f"S/ {monto * ctx['ahorro_pct']:.2f} cada mes"
+                )
+            return base + ". Quieres que te la active?"
+        return "Con gusto te comparto el detalle de precios. Podrias confirmarme a que oferta te refieres?"
+
+    if any(w in msg for w in ("datos", "gigas", " gb", "internet", "naveg")):
+        if ctx.get("oferta"):
+            return (
+                f"{ctx['oferta']} incluye mas gigas para que no te quedes sin datos antes de fin de mes. "
+                "Te paso todos los beneficios?"
+            )
+        return "Tenemos planes con mas gigas al mismo precio. Quieres que te cuente las opciones?"
+
+    if any(w in msg for w in ("claro", "entel", "bitel", "portabil", "cambiar de operador", "competencia", "otro operador")):
+        return (
+            "Puedes portarte a Movistar conservando tu numero y manteniendo tus beneficios actuales. "
+            "Te explico lo rapido que es el proceso?"
+        )
+
+    if any(w in msg for w in ("no interesa", "no gracias", "no me interesa", "molesta", "luego", "despues")):
+        return (
+            f"Sin problema, {nombre}. Te dejo el dato y cuando lo necesites aqui estare. "
+            "Puedo hacer algo mas por ti hoy?"
+        )
+
+    if any(w in msg for w in ("reclamo", "problema", "queja", "senal", "señal", "ayuda", "soporte")):
+        return (
+            "Lamento lo que estas pasando, vamos a resolverlo. Un asesor humano revisara tu caso y te "
+            "contactara a la brevedad. Me puedes dar mas detalles?"
+        )
+
+    if any(w in msg for w in ("gracias", "ok", "perfecto", "dale", "si quiero", "si")):
+        return f"Perfecto, {nombre}. Queda registrada tu solicitud y un asesor confirmara los detalles. Algo mas?"
+
+    return (
+        "Gracias por escribir. Para ayudarte mejor: quieres conocer la oferta para tu linea o tienes "
+        "una consulta sobre tu servicio?"
+    )

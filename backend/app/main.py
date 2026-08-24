@@ -9,7 +9,7 @@ from sqlalchemy import inspect
 
 from app.config import settings
 from app.database import engine, SessionLocal
-from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor, tts, incidents
+from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor, tts, incidents, chat_channel
 from app.services.config_service import ensure_default_config
 from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas
 
@@ -131,6 +131,7 @@ app.include_router(calls.router)
 app.include_router(asesor.router)
 app.include_router(admin.router)
 app.include_router(incidents.router)
+app.include_router(chat_channel.router)
 app.include_router(tts.router)
 
 

@@ -143,6 +143,23 @@ class Incident(Base):
     resolution_note = Column(Text)
 
 
+class ChatMessage(Base):
+    """Mensaje del canal de contacto por chat con el cliente (link publico).
+
+    sender: cliente | asesor | bot (bot = Nexabot responde automaticamente).
+    chat_id actua como token de capacidad: quien lo tiene puede leer/escribir,
+    igual que /llamada/:callId para la llamada WebRTC.
+    """
+    __tablename__ = "chat_messages"
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(String(32), nullable=False, index=True)
+    client_id = Column(String(10), ForeignKey("clients.id"), nullable=False)
+    asesor_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    sender = Column(String(20), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class AppConfig(Base):
     """Configuracion en caliente persistida (ej. umbrales del motor NBO)."""
     __tablename__ = "app_config"
