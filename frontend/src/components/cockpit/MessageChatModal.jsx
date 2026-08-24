@@ -95,6 +95,23 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
     }
   }
 
+  async function toggleBot() {
+    const next = !botOn
+    setBotOn(next)
+    try {
+      await api.patch(`/api/chats/${chatId}/bot`, { enabled: next })
+      setMessages((prev) => [...prev, {
+        id: `local-${Date.now()}`,
+        sender: 'system',
+        body: next
+          ? 'Nexabot activado: responde los mensajes del cliente por ti.'
+          : 'Nexabot en pausa: tú respondes los mensajes del cliente.',
+      }])
+    } catch {
+      setBotOn(!next)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/60 px-4">
       <div className="flex h-[75vh] w-full max-w-md flex-col rounded-xl border border-black/60 bg-white shadow-lg dark:border-white/60 dark:bg-navy-900">
@@ -158,24 +175,7 @@ export default function MessageChatModal({ clientId, clientName, onClose }) {
               )
             }
             const st = SENDER_STYLE[m.sender] || SENDER_STYLE.bot
-  async function toggleBot() {
-    const next = !botOn
-    setBotOn(next)
-    try {
-      await api.patch(`/api/chats/${chatId}/bot`, { enabled: next })
-      setMessages((prev) => [...prev, {
-        id: `local-${Date.now()}`,
-        sender: 'system',
-        body: next
-          ? 'Nexabot activado: responde los mensajes del cliente por ti.'
-          : 'Nexabot en pausa: tú respondes los mensajes del cliente.',
-      }])
-    } catch {
-      setBotOn(!next)
-    }
-  }
-
-  return (
+            return (
               <div key={m.id} className={`flex ${st.wrap}`}>
                 <div className={`max-w-[85%] rounded-xl border px-3 py-2 ${st.bubble}`}>
                   {st.label && (
