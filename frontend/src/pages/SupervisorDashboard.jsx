@@ -115,12 +115,25 @@ export default function SupervisorDashboard() {
     async function load() {
       setLoading(true)
       const [k, a, s, f] = await Promise.all([
-        api.get('/api/admin/kpis').catch(() => ({ data: null })),
-        api.get('/api/admin/asesores').catch(() => ({ data: null })),
-        api.get('/api/admin/segmentos').catch(() => ({ data: null })),
-        api.get(FUNNEL_PERIODS.find((p) => p.key === period).endpoint).catch(() => ({ data: null })),
+        api.get('/api/admin/kpis').catch((e) => {
+          console.error('Error loading KPIs:', e)
+          return { data: null }
+        }),
+        api.get('/api/admin/asesores').catch((e) => {
+          console.error('Error loading asesores:', e)
+          return { data: null }
+        }),
+        api.get('/api/admin/segmentos').catch((e) => {
+          console.error('Error loading segmentos:', e)
+          return { data: null }
+        }),
+        api.get(FUNNEL_PERIODS.find((p) => p.key === period).endpoint).catch((e) => {
+          console.error('Error loading funnel:', e)
+          return { data: null }
+        }),
       ])
       if (!active) return
+      console.log('KPIs loaded:', k.data)
       setKpis(k.data)
       setAsesores(a?.data?.asesores || [])
       setSegmentos(s.data)
