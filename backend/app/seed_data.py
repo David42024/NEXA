@@ -556,7 +556,7 @@ def _clients_batches(db, batch=1000, commit_each=False, batch_size=500, solo_sin
     """Itera clientes por lotes (order by id) sin cargarlos a memoria.
 
     Con 100k+ clientes reales (cargados desde CSV) un `.all()` revienta la RAM en
-    instancias pequeñas (Render 512MB); este barrido procesa de a `batch`.
+    instancias pequenas (Render 512MB); este barrido procesa de a `batch`.
     Si `commit_each`, commitea cada `batch_size` clientes para que el session no
     retenga los objetos modificados (los backfills mutan el profile).
 
