@@ -535,19 +535,75 @@ def get_heatmap(
     nivel: 'departamento', 'provincia' o 'distrito'
     id_padre: ID del padre (requerido para provincia y distrito)
 
-    Los perfiles demo solo tienen 'distrito' (nombre de distrito, ej "Los Olivos").
-    El endpoint resuelve la jerarquia automaticamente via reverse-lookup en
-    peru_geography para que los datos se agreguen correctamente.
+    En Postgres (produccion Neon) se usa un unico query JSON sobre la columna
+    profile para evitar escanear 100k perfiles en Python (timeout por SSL).
+    En SQLite (tests) se usa el barrido portable por lotes.
     """
     from app.data.peru_geography import (
         DEPARTAMENTOS, PROVINCIAS, DISTRITOS,
         normalizar as norm_geo,
-        NORM_DIST_TO_DEPTO, NORM_DIST_TO_PROV, NORM_PROV_TO_DEPTO,
-        NORM_DEPTO,
     )
 
-    # Agregacion portable: barrido por lotes
+    if nivel == "departamento":
+        # Primary: ubicacion_departamento; fallback: distrito (may be dept name)
+        GEO_KEY = "ubicacion_departamento"
+        FALLBACK_KEY = "distrito"
+    elif nivel == "provincia":
+        GEO_KEY = "ubicacion_provincia"
+        FALLBACK_KEY = None
+    else:
+        GEO_KEY = "ubicacion_distrito"
+        FALLBACK_KEY = "distrito"
+
+    norm_map = {}
+    if nivel == "departamento":
+        norm_map = {norm_geo(d["nombre"]): (d["id"], d["nombre"]) for d in DEPARTAMENTOS}
+    elif nivel == "provincia":
+        norm_map = {norm_geo(p["nombre"]): (p["id"], p["nombre"]) for p in PROVINCIAS}
+    else:
+        norm_map = {norm_geo(d["nombre"]): (d["id"], d["nombre"]) for d in DISTRITOS}
+
     counts = {}
+
+    if db.get_bind().dialect.name == "postgresql":
+        try:
+            from sqlalchemy import text
+            # Aggregate directly in Postgres using JSON operators
+            col = f"profile ->> '{GEO_KEY}'"
+            fallback_col = f"profile ->> '{FALLBACK_KEY}'" if FALLBACK_KEY else col
+            # Use COALESCE: prefer primary key, fallback to secondary
+            agg_col = f"COALESCE({col}, {fallback_col})" if FALLBACK_KEY else col
+
+            q = text(f"""
+                SELECT
+                    {agg_col} AS geo_name,
+                    count(*) AS total,
+                    count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
+                FROM clients
+                WHERE {agg_col} IS NOT NULL AND {agg_col} != ''
+                GROUP BY geo_name
+            """)
+            for row in db.execute(q).fetchall():
+                raw_name = str(row[0]).strip()
+                nkey = norm_geo(raw_name)
+                if nkey in norm_map:
+                    geo_id, display_name = norm_map[nkey]
+                    counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
+            items = [
+                {"id": geo_id, "descripcion": d["raw_name"],
+                 "totalClientes": d["total"], "clientesSinMovistarTotal": d["sin_mt"]}
+                for nkey, d in counts.items()
+                if (geo_id := norm_map[nkey][0]) is not None
+            ]
+            return {"items": items}
+        except Exception:
+            pass  # fall through to portable
+
+    # Portable fallback (SQLite / tests): barrido por lotes
+    from app.data.peru_geography import (
+        NORM_DIST_TO_DEPTO, NORM_DIST_TO_PROV, NORM_PROV_TO_DEPTO,
+    )
+
     last_id = None
     while True:
         q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
@@ -561,87 +617,57 @@ def get_heatmap(
             elig = p.get("elegibilidad", {})
             has_mt = bool(elig.get("movistar_total"))
 
-            # Extract raw geo names from profile
             raw_dept = p.get("ubicacion_departamento")
             raw_prov = p.get("ubicacion_provincia")
             raw_dist = p.get("ubicacion_distrito") or p.get("distrito")
 
-            # Derive what we can from whatever is available
-            dept_name = None
-            prov_name = None
-            dist_name = None
+            dept_name = str(raw_dept).strip() if raw_dept else None
+            prov_name = str(raw_prov).strip() if raw_prov else None
+            dist_name = str(raw_dist).strip() if raw_dist else None
 
-            if raw_dept:
-                dept_name = str(raw_dept).strip()
-            if raw_prov:
-                prov_name = str(raw_prov).strip()
-            if raw_dist:
-                dist_name = str(raw_dist).strip()
-
-            # Reverse-lookup: if only district is known, derive dept and prov
             if dist_name and not dept_name:
                 nd = norm_geo(dist_name)
-                parent_depto = NORM_DIST_TO_DEPTO.get(nd)
-                if parent_depto:
-                    dept_name = parent_depto["nombre"]
-                parent_prov = NORM_DIST_TO_PROV.get(nd)
-                if parent_prov:
-                    prov_name = parent_prov["nombre"]
-                # Fallback: the "distrito" field may hold a province name
-                # (old seeds used province names when no districts existed)
+                pd = NORM_DIST_TO_DEPTO.get(nd)
+                if pd:
+                    dept_name = pd["nombre"]
+                pp = NORM_DIST_TO_PROV.get(nd)
+                if pp:
+                    prov_name = pp["nombre"]
                 if not dept_name:
-                    parent_depto_prov = NORM_PROV_TO_DEPTO.get(nd)
-                    if parent_depto_prov:
-                        dept_name = parent_depto_prov["nombre"]
+                    pdp = NORM_PROV_TO_DEPTO.get(nd)
+                    if pdp:
+                        dept_name = pdp["nombre"]
                         if not prov_name:
                             prov_name = dist_name
 
             if prov_name and not dept_name:
-                np = norm_geo(prov_name)
-                parent_depto = NORM_PROV_TO_DEPTO.get(np)
-                if parent_depto:
-                    dept_name = parent_depto["nombre"]
+                pdp = NORM_PROV_TO_DEPTO.get(norm_geo(prov_name))
+                if pdp:
+                    dept_name = pdp["nombre"]
 
-            # Add to counts for the requested level
+            geo_value = None
+            raw_name = None
             if nivel == "departamento" and dept_name:
-                key = norm_geo(dept_name)
-                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": dept_name})
-                entry["total"] += 1
-                if not has_mt:
-                    entry["sin_mt"] += 1
+                geo_value = dept_name
             elif nivel == "provincia" and prov_name:
-                key = norm_geo(prov_name)
-                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": prov_name})
-                entry["total"] += 1
-                if not has_mt:
-                    entry["sin_mt"] += 1
+                geo_value = prov_name
             elif nivel == "distrito" and dist_name:
-                key = norm_geo(dist_name)
-                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": dist_name})
+                geo_value = dist_name
+
+            if geo_value:
+                nkey = norm_geo(geo_value)
+                entry = counts.setdefault(nkey, {"total": 0, "sin_mt": 0, "raw_name": geo_value})
                 entry["total"] += 1
                 if not has_mt:
                     entry["sin_mt"] += 1
-
         last_id = rows[-1][0]
 
-    # Map normalized name -> id using the geography hierarchy
-    if nivel == "departamento":
-        norm_map = {norm_geo(d["nombre"]): d["id"] for d in DEPARTAMENTOS}
-    elif nivel == "provincia":
-        norm_map = {norm_geo(p["nombre"]): p["id"] for p in PROVINCIAS}
-    else:
-        norm_map = {norm_geo(d["nombre"]): d["id"] for d in DISTRITOS}
-
     items = []
-    for norm_key, data in counts.items():
-        geo_id = norm_map.get(norm_key)
-        if geo_id is None:
-            continue
-        items.append({
-            "id": geo_id,
-            "descripcion": data["raw_name"],
-            "totalClientes": data["total"],
-            "clientesSinMovistarTotal": data["sin_mt"],
-        })
-
+    for nkey, data in counts.items():
+        if nkey in norm_map:
+            geo_id = norm_map[nkey][0]
+            items.append({
+                "id": geo_id, "descripcion": data["raw_name"],
+                "totalClientes": data["total"], "clientesSinMovistarTotal": data["sin_mt"],
+            })
     return {"items": items}
