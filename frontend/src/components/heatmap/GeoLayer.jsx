@@ -1,37 +1,18 @@
-import React, { useMemo, useCallback } from 'react'
-import {
-  ComposableMap,
-  Geographies,
-  Geography,
-} from 'react-simple-maps'
+import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { geoMercator, geoPath } from 'd3-geo'
 import { colorScale, NO_DATA_COLOR, isDark } from './colorScale'
 import normalizeNombre from './normalizeNombre'
 
 const PROJECTION_CONFIG = {
-  departamento: {
-    scale: 700,
-    center: [-75, -10],
-  },
-  provincia: {
-    scale: 3200,
-    center: [-75, -10],
-  },
-  distrito: {
-    scale: 16000,
-    center: [-75, -10],
-  },
+  departamento: { scale: 850, center: [-75.5, -10.2] },
+  provincia: { scale: 3500, center: [-75.5, -10.2] },
+  distrito: { scale: 16000, center: [-75.5, -10.2] },
 }
 
-const GEO_PROPS_KEY = {
+const GEO_NAME_KEY = {
   departamento: 'NOMBDEP',
   provincia: 'NOMBPROV',
   distrito: 'NOMBDIST',
-}
-
-const PARENT_PROPS_KEY = {
-  departamento: null,
-  provincia: 'FIRST_NOMB',
-  distrito: 'NOMBDEP',
 }
 
 export default function GeoLayer({
@@ -40,17 +21,54 @@ export default function GeoLayer({
   nivel = 'departamento',
   min,
   max,
-  metricMode = 'porcentaje',
   onSelect,
   hoveredId,
   onHover,
   onHoverEnd,
 }) {
+  const svgRef = useRef(null)
+  const [dims, setDims] = useState({ w: 600, h: 500 })
+
+  useEffect(() => {
+    const el = svgRef.current?.parentElement
+    if (!el) return
+    const ro = new ResizeObserver(entries => {
+      const { width } = entries[0].contentRect
+      if (width > 0) setDims({ w: width, h: Math.round(width * 0.7) })
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const dataMap = useMemo(() => {
     const m = {}
     items.forEach(item => { m[item.id] = item })
     return m
   }, [items])
+
+  const cfg = PROJECTION_CONFIG[nivel] || PROJECTION_CONFIG.departamento
+  const nameKey = GEO_NAME_KEY[nivel] || 'NOMBDEP'
+
+  const { paths, projection } = useMemo(() => {
+    if (!geojson?.features?.length) return { paths: [], projection: null }
+
+    const projection = geoMercator()
+      .scale(cfg.scale)
+      .center(cfg.center)
+      .translate([dims.w / 2, dims.h / 2])
+
+    const pathGen = geoPath().projection(projection)
+
+    const paths = geojson.features.map(feature => {
+      const d = pathGen(feature)
+      if (!d) return null
+      const nombre = feature.properties?.[nameKey]
+      const normName = normalizeNombre(nombre)
+      return { d, normName, nombre, properties: feature.properties }
+    }).filter(Boolean)
+
+    return { paths, projection }
+  }, [geojson, cfg.scale, cfg.center, dims.w, dims.h, nameKey])
 
   const intensity = useCallback((value) => {
     if (value == null) return null
@@ -58,76 +76,47 @@ export default function GeoLayer({
     return (value - min) / (max - min)
   }, [min, max])
 
-  const projConfig = PROJECTION_CONFIG[nivel] || PROJECTION_CONFIG.departamento
-  const geoNameKey = GEO_PROPS_KEY[nivel] || 'NOMBDEP'
-
-  const handleMouseEnter = useCallback((geo, item) => {
-    if (item) onHover?.(item)
-  }, [onHover])
-
-  const handleMouseLeave = useCallback(() => {
-    onHoverEnd?.()
-  }, [onHoverEnd])
-
-  const handleClick = useCallback((item) => {
-    if (item) onSelect?.(item)
-  }, [onSelect])
-
-  if (!geojson) return null
+  if (!geojson || paths.length === 0) {
+    return (
+      <div className="flex h-64 items-center justify-center text-sm text-slate-400">
+        Cargando mapa...
+      </div>
+    )
+  }
 
   return (
-    <ComposableMap
-      projection="mercator"
-      projectionConfig={{
-        scale: projConfig.scale,
-        center: projConfig.center,
-      }}
-      style={{ width: '100%', height: 'auto' }}
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${dims.w} ${dims.h}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="Mapa de calor geografico de clientes sin Movistar Total"
     >
-      <Geographies geography={geojson}>
-        {({ geographies }) =>
-          geographies.map(geo => {
-            const props = geo.properties || {}
-            const nombre = props[geoNameKey]
-            const normName = normalizeNombre(nombre)
-            const item = dataMap[normName]
-            const value = item?.value
-            const intensityVal = value != null ? intensity(value) : null
-            const fill = value != null ? colorScale(intensityVal) : NO_DATA_COLOR
-            const dark = isDark(fill)
-            const isHovered = hoveredId === normName
+      {paths.map(({ d, normName, nombre }) => {
+        const item = dataMap[normName]
+        const value = item?.value
+        const intensityVal = value != null ? intensity(value) : null
+        const fill = value != null ? colorScale(intensityVal) : NO_DATA_COLOR
+        const dark = isDark(fill)
+        const isHovered = hoveredId === normName
 
-            return (
-              <Geography
-                key={geo.rsmKey}
-                geography={geo}
-                onClick={() => handleClick(item)}
-                onMouseEnter={() => handleMouseEnter(geo, item)}
-                onMouseLeave={handleMouseLeave}
-                style={{
-                  default: {
-                    fill,
-                    outline: 'none',
-                    stroke: 'rgba(255,255,255,0.5)',
-                    strokeWidth: 0.5,
-                  },
-                  hover: {
-                    fill,
-                    outline: 'none',
-                    stroke: '#0e7490',
-                    strokeWidth: 2,
-                    filter: 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))',
-                  },
-                  pressed: {
-                    fill,
-                    outline: 'none',
-                  },
-                }}
-              />
-            )
-          })
-        }
-      </Geographies>
-    </ComposableMap>
+        return (
+          <path
+            key={normName}
+            d={d}
+            fill={fill}
+            stroke={isHovered ? '#0e7490' : 'rgba(255,255,255,0.5)'}
+            strokeWidth={isHovered ? 2 : 0.5}
+            className="cursor-pointer transition-all duration-150"
+            style={{
+              filter: isHovered ? 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))' : 'none',
+            }}
+            onClick={() => item && onSelect?.(item)}
+            onMouseEnter={() => item && onHover?.(item)}
+            onMouseLeave={() => onHoverEnd?.()}
+          />
+        )
+      })}
+    </svg>
   )
 }
