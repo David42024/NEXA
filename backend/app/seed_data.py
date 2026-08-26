@@ -298,6 +298,12 @@ def seed():
             clients.append(client)
         db.flush()
 
+        # Asignar la cartera: todos los clientes al asesor demo.
+        asesor_user = db.query(models.User).filter(models.User.role == "asesor").first()
+        if asesor_user:
+            for client in clients:
+                client.asesor_id = asesor_user.id
+
         # El funnel (funnel_daily) y las interacciones se siembran aparte con
         # volumen demo modesto y coherente: ver seed_demo_activity() abajo.
         # En produccion estos datos se registran con uso real.
@@ -359,6 +365,12 @@ def seed_demo_activity(db=None):
         if not asesores or not offers or not clients:
             print("Seed de actividad omitido: faltan usuarios/ofertas/clientes.")
             return
+
+        # Redistribuir la cartera entre los asesores demo para que cada uno
+        # tenga clientes asignados (cartera_puntuada usa clients.asesor_id).
+        for i, c in enumerate(clients):
+            c.asesor_id = asesores[i % len(asesores)].id
+        db.flush()
 
         # Sesgo de aceptacion por asesor (demo: niveles de cumplimiento distintos
         # para que el panel de supervisión muestre cumple / en curso / bajo).
@@ -574,5 +586,27 @@ def backfill_campania_ofertas(db) -> int:
             c.profile = profile
             updated += 1
     return updated
-    seed()
-    seed_demo_activity()
+
+
+def backfill_asesor_cartera(db) -> int:
+    """Backfill idempotente: asigna clientes sin asesor_id a un asesor demo.
+
+    Si un asesor tiene clientes asignados (via csv_loader), no se toca nada.
+    Solo se asignan clientes con asesor_id IS NULL al primer asesor disponible.
+    """
+    tiene_cartera = db.query(models.Client.id).filter(
+        models.Client.asesor_id.isnot(None)
+    ).first()
+    if tiene_cartera:
+        return 0
+
+    asesor = db.query(models.User).filter(models.User.role == "asesor").first()
+    if not asesor:
+        return 0
+
+    updated = 0
+    for c in _clients_batches(db, commit_each=True, solo_sinteticos=True):
+        if c.asesor_id is None:
+            c.asesor_id = asesor.id
+            updated += 1
+    return updated

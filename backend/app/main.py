@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import engine, SessionLocal
 from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor, tts, incidents, chat_channel, twilio
 from app.services.config_service import ensure_default_config
-from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas
+from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas, backfill_asesor_cartera
 
 logging.basicConfig(level=logging.INFO)
 
@@ -82,6 +82,22 @@ def _backfill_comportamiento():
 
 _backfill_reclamos()
 _backfill_comportamiento()
+
+
+def _backfill_asesor_cartera():
+    """Asigna clientes sin asesor_id a un asesor demo (backfill para BDs existentes)."""
+    if not inspect(engine).has_table("clients"):
+        return
+    db = SessionLocal()
+    try:
+        n = backfill_asesor_cartera(db)
+        if n:
+            logging.info("Backfill de cartera asesor: %d cliente(s) asignado(s)", n)
+    finally:
+        db.close()
+
+
+_backfill_asesor_cartera()
 
 app = FastAPI(
     title="NEXA API",
