@@ -4,9 +4,9 @@ import { useAuth } from '../context/AuthContext.jsx'
 import ThemeToggle from '../components/ThemeToggle.jsx'
 
 const DEMO_USERS = [
-  { role: 'Asesor', email: 'asesor@nexa.demo', password: 'asesor123' },
-  { role: 'Supervisor', email: 'supervisor@nexa.demo', password: 'supervisor123' },
-  { role: 'Admin', email: 'admin@nexa.demo', password: 'admin123' },
+  { role: 'Asesor', email: 'asesor@nexa.demo', password: 'asesor123', description: 'Mi cartera y clientes' },
+  { role: 'Supervisor', email: 'supervisor@nexa.demo', password: 'supervisor123', description: 'Desempeño del equipo' },
+  { role: 'Admin', email: 'admin@nexa.demo', password: 'admin123', description: 'Gestión y configuración' },
 ]
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -128,8 +128,14 @@ export default function Login() {
           const data = await response.json()
           if (data.users && data.users.length > 0) {
             // Mapear contraseñas correctas según el rol
+            const ROLE_DESCRIPTIONS = {
+              asesor: 'Mi cartera y clientes',
+              supervisor: 'Desempeño del equipo',
+              admin: 'Gestión y configuración',
+            }
             const usersWithPasswords = data.users.map(user => ({
               ...user,
+              description: ROLE_DESCRIPTIONS[user.role.toLowerCase()] || '',
               password: user.role.toLowerCase() === 'admin' ? 'admin123' :
                          user.role.toLowerCase() === 'supervisor' ? 'supervisor123' :
                          user.role.toLowerCase() === 'asesor' ? 'asesor123' : 'demo123'
@@ -315,14 +321,17 @@ export default function Login() {
                       onClick={() => fillDemo(u)}
                       disabled={loadingUsers}
                       aria-label={`Usar acceso de ${u.role}`}
-                      className={`flex min-h-[48px] flex-col items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-xs font-medium transition duration-200 ${
+                      className={`flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-medium transition duration-200 ${
                         active
                           ? 'border-cyan-500 bg-cyan-50 text-cyan-600 dark:border-cyan-400/60 dark:bg-cyan-500/10 dark:text-cyan-300'
                           : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-cyan-400/60 hover:bg-slate-100 hover:text-navy-900 dark:border-white/10 dark:bg-white/[0.02] dark:text-slate-300 dark:hover:border-cyan-400/40 dark:hover:bg-white/[0.05] dark:hover:text-white'
                       } ${loadingUsers ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       <UserIcon className="h-4 w-4" />
-                      <span>{u.role}</span>
+                      <span className="font-semibold">{u.role}</span>
+                      {u.description && (
+                        <span className="text-[10px] font-normal text-slate-400 dark:text-slate-500">{u.description}</span>
+                      )}
                     </button>
                   )
                 })}
