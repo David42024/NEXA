@@ -20,7 +20,7 @@ ID_PATTERN = re.compile(r"^[A-Za-z]{1,5}_?\d{4,}$")
 # Limite maximo de clientes que se puntuan en el listado. Con decenas/hundreds de
 # miles de registros y un perfil JSON enorme por cliente, NO se puede recorrer toda
 # la tabla: se puntua solo este subconjunto y se pagina sobre el (Neon free tier).
-LIST_MAX_CLIENTS = 200
+LIST_MAX_CLIENTS = 5000  # Aumentado para mostrar todos los clientes del asesor
 
 # Hora local de Perú (sin horario de verano). Si no está disponible, usa la del servidor.
 try:
