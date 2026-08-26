@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import engine, SessionLocal
 from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor, tts, incidents, chat_channel, twilio
 from app.services.config_service import ensure_default_config
-from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas, backfill_asesor_cartera, backfill_geographic_fields
+from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas, backfill_asesor_cartera
 
 logging.basicConfig(level=logging.INFO)
 
@@ -98,24 +98,6 @@ def _backfill_asesor_cartera():
 
 
 _backfill_asesor_cartera()
-
-
-def _backfill_geographic_fields():
-    """Agrega ubicacion_departamento/provincia/distrito a perfiles que solo
-    tienen el campo 'distrito' (datos demo antiguos). Idempotente.
-    """
-    if not inspect(engine).has_table("clients"):
-        return
-    db = SessionLocal()
-    try:
-        n = backfill_geographic_fields(db)
-        if n:
-            logging.info("Backfill de campos geograficos: %d cliente(s) actualizado(s)", n)
-    finally:
-        db.close()
-
-
-_backfill_geographic_fields()
 
 app = FastAPI(
     title="NEXA API",
