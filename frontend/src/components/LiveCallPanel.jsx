@@ -20,6 +20,7 @@ import { useAsesorCall, fmtDuration } from '../hooks/useCall'
 export default function LiveCallPanel({
   clientId,
   clientName,
+  clientPhone,
   onCopilotEvent,
   onE2E,
   canStart = true,
@@ -30,7 +31,6 @@ export default function LiveCallPanel({
   const [savingRecording, setSavingRecording] = useState(false)
   const [lastOffering, setLastOffering] = useState(null)
   const [handoff, setHandoff] = useState(null)
-  const [phoneNumber, setPhoneNumber] = useState('')
   const wasActive = useRef(false)
   const lastOfferingRef = useRef(null)
 
@@ -91,7 +91,7 @@ export default function LiveCallPanel({
 
   const call = useAsesorCall({
     clientId,
-    phoneNumber,
+    clientPhone,
     onCopilotEvent,
     onOffering: handleOfferingEvent,
     onAcceptance: (msg) => setHandoff(msg),
@@ -135,8 +135,9 @@ export default function LiveCallPanel({
         )}
       </div>
       <p className="mb-4 text-xs text-slate-400">
-        Llamada telefónica real via Twilio. Ingresa el número del cliente y la IA
-        escucha la voz de ambos en tiempo real.
+        Llamada telefónica real via Twilio. Se llama al número del cliente desde
+        la línea verificada (+51 920 611 224). La IA escucha la voz de ambos en
+        tiempo real.
       </p>
 
       <audio ref={useRef()} autoPlay className="hidden" />
@@ -172,30 +173,24 @@ export default function LiveCallPanel({
 
       {call.phase === 'idle' && (
         <>
-          <div className="mb-3">
-            <label className="mb-1 block text-[11px] font-medium text-slate-400">
-              Numero del cliente
-            </label>
-            <input
-              type="tel"
-              value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value)}
-              placeholder="+51 999 123 456"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-slate-500"
-            />
+          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 dark:border-white/10 dark:bg-white/5">
+            <p className="text-[11px] font-medium text-slate-400">Numero del cliente</p>
+            <p className="text-sm font-semibold text-navy-900 dark:text-white">
+              {clientPhone || 'No registrado'}
+            </p>
             <p className="mt-1 text-[10px] text-slate-400">
-              En trial, solo numeros verificados en Twilio.
+              Línea verificada: +51 920 611 224
             </p>
           </div>
 
           <div className="flex gap-2">
             <button
               onClick={() => call.start()}
-              disabled={!canStart || !phoneNumber.trim()}
+              disabled={!canStart}
               className="btn-primary flex flex-1 items-center justify-center gap-2 text-sm"
             >
               <Phone className="h-4 w-4" />
-              Marcar a {phoneNumber || firstName}
+              Marcar a {firstName}
             </button>
             {onStartChat && (
               <button
@@ -220,7 +215,7 @@ export default function LiveCallPanel({
         <div>
           <p className="mb-3 flex items-center gap-2 text-sm text-slate-500">
             <PhoneCall className="h-4 w-4 animate-pulse text-emerald-500" />
-            Marcando a {phoneNumber || firstName}...
+            Marcando a {firstName}...
           </p>
           <p className="mb-3 text-[11px] text-slate-400">
             Twilio esta marcando el numero real. Espera a que se conteste.
@@ -251,7 +246,7 @@ export default function LiveCallPanel({
             </p>
             <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
               <Timer className="h-3 w-3" />
-              Hablando con {phoneNumber || firstName} via PSTN
+              Hablando con {firstName} via PSTN
             </p>
           </div>
           <div className="flex items-center justify-center gap-2">

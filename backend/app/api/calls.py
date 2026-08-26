@@ -61,14 +61,17 @@ def start_call(
 ):
     """Prepara la llamada via Twilio: offering E2E (planned) + contexto del copilot.
 
-    phone_number es obligatorio para llamar a un telefono real.
+    El numero real siempre es +51920611224 (unico verificado en Twilio).
+    phone_number es opcional: se extrae del perfil del cliente si no se provee.
     """
     client = db.query(models.Client).filter(models.Client.id == payload.client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="No se encontro cliente con ese ID")
 
-    if not payload.phone_number or not payload.phone_number.strip():
-        raise HTTPException(status_code=400, detail="Se requiere un numero de telefono")
+    client_phone = (client.profile or {}).get("telefono", "")
+    phone_number = payload.phone_number.strip() if payload.phone_number and payload.phone_number.strip() else client_phone
+    if not phone_number:
+        phone_number = "+51920611224"
 
     ctx = chat_engine.build_context(client.__dict__)
     top = _latest_top_offer(db, client.id)
@@ -90,7 +93,7 @@ def start_call(
 
     from app.services.twilio_provider import twilio_provider
     sess.call_mode = "twilio"
-    sess.phone_number = payload.phone_number.strip()
+    sess.phone_number = phone_number
     try:
         loop = asyncio.get_running_loop()
         loop.create_task(

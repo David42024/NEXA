@@ -59,26 +59,20 @@ def test_start_con_phone_number_es_twilio(client, session):
     assert offering.stage == "planned"
 
 
-def test_start_twilio_requiere_phone_number(client):
-    """Sin phone_number, la llamada no puede iniciarse."""
-    token = login(client)
-    resp = client.post(
-        "/api/calls/start",
-        json={"client_id": "C00001"},
-        headers=auth(token),
-    )
-    assert resp.status_code == 400
+def test_start_twilio_sin_phone_number_extrae_del_perfil(client, session):
+    """Sin phone_number, la llamada usa el telefono del perfil del cliente."""
+    token, data = _start_twilio(client, phone_number=None)
+    assert data["call_id"]
+    assert data["call_mode"] == "twilio"
+    # C00001 no tiene telefono en el profile de test -> usa el default +51920611224
+    assert data["phone_number"]
 
 
-def test_start_twilio_phone_number_vacio(client):
-    """Phone number vacio debe dar error."""
-    token = login(client)
-    resp = client.post(
-        "/api/calls/start",
-        json={"client_id": "C00001", "phone_number": "  "},
-        headers=auth(token),
-    )
-    assert resp.status_code == 400
+def test_start_twilio_phone_number_vacio_usa_default(client):
+    """Phone number vacio debe usar el default +51920611224."""
+    token, data = _start_twilio(client, phone_number="  ")
+    assert data["call_id"]
+    assert data["phone_number"]
 
 
 def test_start_twilio_requiere_permiso(client):

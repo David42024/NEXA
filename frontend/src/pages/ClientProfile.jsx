@@ -456,6 +456,7 @@ export default function ClientProfile() {
           <LiveCallPanel
             clientId={id}
             clientName={client.name}
+            clientPhone={client.profile?.telefono}
             onCopilotEvent={handleCopilotEvent}
             onE2E={handleOffering}
             canStart={canGenerate}

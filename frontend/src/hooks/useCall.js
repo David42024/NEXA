@@ -38,7 +38,7 @@ function useTimer() {
  * El asesor solo ve el panel de copilot (STT, sugerencias, mood, modo).
  * No usa WebRTC ni microfono del navegador.
  */
-export function useAsesorCall({ clientId, phoneNumber, onCopilotEvent, onOffering, onAcceptance }) {
+export function useAsesorCall({ clientId, clientPhone, onCopilotEvent, onOffering, onAcceptance }) {
   const [phase, setPhase] = useState('idle') // idle | dialing | ringing | active | ended
   const [error, setError] = useState(null)
   const [callInfo, setCallInfo] = useState(null)
@@ -65,10 +65,6 @@ export function useAsesorCall({ clientId, phoneNumber, onCopilotEvent, onOfferin
 
   async function start() {
     if (phase !== 'idle') return
-    if (!phoneNumber || !phoneNumber.trim()) {
-      setError('Ingresa un numero de telefono.')
-      return
-    }
     setPhaseAll('dialing')
     setError(null)
     stopTimer()
@@ -77,7 +73,7 @@ export function useAsesorCall({ clientId, phoneNumber, onCopilotEvent, onOfferin
     try {
       const { data } = await api.post('/api/calls/start', {
         client_id: clientId,
-        phone_number: phoneNumber.trim(),
+        phone_number: clientPhone || undefined,
       })
       callIdRef.current = data.call_id
       setCallInfo(data)
