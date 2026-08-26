@@ -7,7 +7,6 @@ Verifica:
   - Decodificacion/codificacion de audio µ-law.
   - Handler de Media Stream procesa eventos correctamente.
   - Cooldown del copilot en modo twilio.
-  - start sin phone_number mantiene WebRTC (backward compatibility).
 """
 import asyncio
 import base64
@@ -43,28 +42,16 @@ def _start_twilio(client, client_id="C00001", phone_number="+51999123456"):
     return token, resp.json()
 
 
-def _start_webrtc(client, client_id="C00001"):
-    token = login(client)
-    resp = client.post(
-        "/api/calls/start",
-        json={"client_id": client_id},
-        headers=auth(token),
-    )
-    assert resp.status_code == 200, resp.text
-    return token, resp.json()
-
-
 # ---------------------------------------------------------------------------
 # Tests: /api/calls/start con phone_number
 # ---------------------------------------------------------------------------
 
 def test_start_con_phone_number_es_twilio(client, session):
-    """Al enviar phone_number, la sesion debe ser twilio sin cliente_token."""
+    """Al enviar phone_number, la sesion debe ser twilio."""
     token, data = _start_twilio(client, phone_number="+51999123456")
     assert data["call_id"]
     assert data["call_mode"] == "twilio"
     assert data["phone_number"] == "+51999123456"
-    assert data["cliente_token"] is None
 
     offering = session.get(models.Offering, data["offering_id"])
     assert offering is not None
@@ -72,25 +59,26 @@ def test_start_con_phone_number_es_twilio(client, session):
     assert offering.stage == "planned"
 
 
-def test_start_sin_phone_number_es_webrtc(client, session):
-    """Sin phone_number, la sesion debe ser WebRTC (backward compatibility)."""
-    token, data = _start_webrtc(client)
-    assert data["call_mode"] == "webrtc"
-    assert data["cliente_token"] is not None
-    assert data["phone_number"] is None
+def test_start_twilio_requiere_phone_number(client):
+    """Sin phone_number, la llamada no puede iniciarse."""
+    token = login(client)
+    resp = client.post(
+        "/api/calls/start",
+        json={"client_id": "C00001"},
+        headers=auth(token),
+    )
+    assert resp.status_code == 400
 
 
 def test_start_twilio_phone_number_vacio(client):
-    """Phone number vacio debe fallback a WebRTC."""
+    """Phone number vacio debe dar error."""
     token = login(client)
     resp = client.post(
         "/api/calls/start",
         json={"client_id": "C00001", "phone_number": "  "},
         headers=auth(token),
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["call_mode"] == "webrtc"
+    assert resp.status_code == 400
 
 
 def test_start_twilio_requiere_permiso(client):
@@ -322,17 +310,17 @@ def test_call_session_twilio_attributes(client):
     assert sess.phone_number == "+51999888777"
 
 
-def test_call_session_webrtc_attributes(client):
-    """La sesion webrtc debe tener call_mode=webrtc."""
+def test_call_session_has_phone_number(client):
+    """La sesion debe tener call_mode y phone_number."""
     from app.services.call_provider import provider
 
-    token, data = _start_webrtc(client)
+    token, data = _start_twilio(client, phone_number="+51999888777")
     call_id = data["call_id"]
     sess = provider.get_session(call_id)
 
     assert sess is not None
-    assert sess.call_mode == "webrtc"
-    assert sess.phone_number is None
+    assert sess.call_mode == "twilio"
+    assert sess.phone_number == "+51999888777"
 
 
 # ---------------------------------------------------------------------------

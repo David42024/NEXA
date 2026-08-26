@@ -1,3 +1,12 @@
+/**
+ * Pagina del "cliente" para llamada WebRTC P2P.
+ *
+ * ESTA PAGINA YA NO SE USA: las llamadas ahora son reales via Twilio (PSTN).
+ * El cliente recibe una llamada telefonica real, no un link WebRTC.
+ *
+ * Conservada por si se necesita reactivar el modo demo/WebRTC en el futuro.
+ */
+/*
 import React, { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import {
@@ -38,9 +47,7 @@ export default function ClientCall() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-b from-navy-950 via-navy-900 to-navy-950 px-4 text-slate-200">
-      {/* Audio remoto del asesor (silencioso: el propio navegador lo mezcla) */}
       <audio ref={audioRef} autoPlay className="hidden" />
-      {/* Audio de la voz del bot: se reproduce y se enruta al asesor via WebRTC */}
       <audio ref={botAudioRef} className="hidden" />
 
       <div className="mb-8 flex items-center gap-2">
@@ -57,9 +64,9 @@ export default function ClientCall() {
               Llamada entrante
             </p>
             <h1 className="mt-3 font-display text-2xl font-bold text-white">
-              Llamada entrante para “{firstName}”
+              Llamada entrante para "{firstName}"
             </h1>
-            <p className="mt-1 text-xs text-slate-400">Asesor de Movistar te está llamando</p>
+            <p className="mt-1 text-xs text-slate-400">Asesor de Movistar te esta llamando</p>
 
             <div className="mt-8 flex items-center justify-center gap-4">
               <button
@@ -78,7 +85,7 @@ export default function ClientCall() {
               </button>
             </div>
             <p className="mt-6 text-[11px] text-slate-500">
-              Contestar activa tu micrófono y el audio de la llamada.
+              Contestar activa tu microfono y el audio de la llamada.
             </p>
           </>
         )}
@@ -86,7 +93,7 @@ export default function ClientCall() {
         {call.phase === 'connecting' && (
           <div className="py-10">
             <Phone className="mx-auto h-10 w-10 animate-pulse text-emerald-400" />
-            <p className="mt-4 text-sm text-slate-300">Conectando con el asesor…</p>
+            <p className="mt-4 text-sm text-slate-300">Conectando con el asesor...</p>
             <button
               onClick={() => call.hangup()}
               className="mt-6 flex items-center justify-center gap-2 rounded-full bg-slate-700 px-6 py-2 text-xs font-semibold text-white transition-colors hover:bg-slate-600"
@@ -108,29 +115,29 @@ export default function ClientCall() {
             </p>
             <p className="mt-2 text-xs text-slate-400">
               {call.mode === 'bot'
-                ? 'Nexabot (IA de Movistar) está conduciendo la llamada'
+                ? 'Nexabot (IA de Movistar) esta conduciendo la llamada'
                 : `Hablando con ${firstName} (Asesor Movistar)`}
             </p>
 
             <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-cyan-300">
               <MessageSquareText className="h-3.5 w-3.5" />
-              Transcripción en vivo: la IA del asesor escucha tus objeciones
+              Transcripcion en vivo: la IA del asesor escucha tus objeciones
             </p>
 
             {call.thinking ? (
               <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-cyan-300">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-400" />
-                Nexabot está pensando…
+                Nexabot esta pensando...
               </p>
             ) : call.botSpeaking ? (
               <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-slate-400">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                Nexabot está hablando… escucha
+                Nexabot esta hablando... escucha
               </p>
             ) : (
               <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-emerald-400">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-                Escuchándote… respóndele al asistente
+                Escuchandote... respondele al asistente
               </p>
             )}
 
@@ -161,46 +168,39 @@ export default function ClientCall() {
           <>
             <PhoneOff className="mx-auto h-10 w-10 text-slate-500" />
             <p className="mt-4 text-sm text-slate-300">Llamada finalizada</p>
-            <p className="mt-1 text-xs text-slate-500">Duración {fmtDuration(call.duration)}</p>
+            <p className="mt-1 text-xs text-slate-500">Duracion {fmtDuration(call.duration)}</p>
             <p className="mt-6 text-[11px] text-slate-500">
-              Vuelve a la pestaña del asesor para ver las objeciones detectadas y cerrar la venta.
+              Vuelve a la pestana del asesor para ver las objeciones detectadas y cerrar la venta.
             </p>
           </>
         )}
       </div>
 
-      {/* Confianza y valor: alientan a permanecer y comprar */}
       <div className="mt-6 w-full max-w-sm">
         <div className="grid grid-cols-3 gap-2">
           <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
             <ShieldCheck className="h-4 w-4 text-emerald-400" />
             <p className="text-center text-[10px] leading-tight text-slate-300">
-              Asistente oficial
-              <br />
-              Movistar
+              Asistente oficial<br />Movistar
             </p>
           </div>
           <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
             <Lock className="h-4 w-4 text-cyan-300" />
             <p className="text-center text-[10px] leading-tight text-slate-300">
-              Llamada cifrada
-              <br />
-              extremo a extremo
+              Llamada cifrada<br />extremo a extremo
             </p>
           </div>
           <div className="flex flex-col items-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-2 py-3">
             <Headphones className="h-4 w-4 text-amber-300" />
             <p className="text-center text-[10px] leading-tight text-slate-300">
-              Atención 24/7
-              <br />
-              sin costo
+              Atencion 24/7<br />sin costo
             </p>
           </div>
         </div>
 
         {call.phase === 'incoming' && (
           <p className="mt-3 text-center text-[11px] text-slate-500">
-            Esta llamada puede ser grabada para mejorar la atención. En ella recibirás tu oferta
+            Esta llamada puede ser grabada para mejorar la atencion. En ella recibirás tu oferta
             personalizada.
           </p>
         )}
@@ -209,7 +209,7 @@ export default function ClientCall() {
           <div className="mt-3 flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2.5">
             <Sparkles className="h-4 w-4 shrink-0 text-cyan-300" />
             <p className="text-[11px] leading-snug text-cyan-100">
-              Tienes una <strong className="text-white">oferta exclusiva</strong> esperándote. Confírmala
+              Tienes una <strong className="text-white">oferta exclusiva</strong> esperandote. Confiramala
               al final de la llamada y empieza a ahorrar desde hoy.
             </p>
           </div>
@@ -226,3 +226,4 @@ export default function ClientCall() {
     </div>
   )
 }
+*/

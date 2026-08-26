@@ -9,7 +9,7 @@ import Dashboard from './pages/Dashboard.jsx'
 import SupervisorDashboard from './pages/SupervisorDashboard.jsx'
 import ClientSearch from './pages/ClientSearch.jsx'
 import ClientProfile from './pages/ClientProfile.jsx'
-import ClientCall from './pages/ClientCall.jsx'
+// import ClientCall from './pages/ClientCall.jsx'  // deshabilitado: llamadas reales via Twilio
 import ClientChat from './pages/ClientChat.jsx'
 import Funnel from './pages/Funnel.jsx'
 import Admin from './pages/Admin.jsx'
@@ -65,10 +65,10 @@ export default function App() {
         }
       />
 
-      {/* Página pública de la llamada entrante del "cliente" (WebRTC) */}
-      <Route path="/llamada/:callId" element={<ClientCall />} />
+      {/* WebRTC P2P deshabilitado: las llamadas son reales via Twilio (PSTN) */}
+      {/* <Route path="/llamada/:callId" element={<ClientCall />} /> */}
 
-      {/* Página pública del chat de mensajes con el cliente (link del asesor) */}
+      {/* Pagina publica del chat de mensajes con el cliente (link del asesor) */}
       <Route path="/mensaje/:chatId" element={<ClientChat />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />

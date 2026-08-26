@@ -1,9 +1,9 @@
-"""Tests de la llamada WebRTC (señalización P2P + copilot en vivo).
+"""Tests de la llamada (Twilio PSTN + copilot en vivo).
 
 Verifica:
-  - /api/calls/start crea el offering E2E (planned, canal Llamada) y credenciales.
-  - El WebSocket reenvía oferta/answer/ICE entre asesor y cliente.
-  - La transcripcion (stt) del cliente se reenvía y dispara el copilot.
+  - /api/calls/start con phone_number crea el offering E2E (planned, canal Llamada).
+  - El WebSocket reenvia stt/copilot/mood entre asesor y cliente (simulado).
+  - La transcripcion (stt) del cliente se reenvia y dispara el copilot.
   - El cierre de llamada se notifica a ambas partes.
   - Acceso denegado con token invalido (cierre 1008).
 """
@@ -21,7 +21,11 @@ from conftest import login, auth
 
 def _start(client, client_id="C00001"):
     token = login(client)
-    resp = client.post("/api/calls/start", json={"client_id": client_id}, headers=auth(token))
+    resp = client.post(
+        "/api/calls/start",
+        json={"client_id": client_id, "phone_number": "+51999123456"},
+        headers=auth(token),
+    )
     assert resp.status_code == 200, resp.text
     return token, resp.json()
 
@@ -37,7 +41,8 @@ def _recv_until(ws, *types, predicate=None):
 def test_start_crea_offering_y_credenciales(client, session):
     token, data = _start(client)
     assert data["call_id"]
-    assert data["cliente_token"]
+    assert data["call_mode"] == "twilio"
+    assert data["phone_number"] == "+51999123456"
     assert data["client_id"] == "C00001"
     assert data["client_name"]
     assert data["offering_id"]
@@ -50,13 +55,21 @@ def test_start_crea_offering_y_credenciales(client, session):
 
 def test_start_requiere_permiso(client):
     token = login(client, email="supervisor@nexa.demo", password="supervisor123")
-    resp = client.post("/api/calls/start", json={"client_id": "C00001"}, headers=auth(token))
+    resp = client.post(
+        "/api/calls/start",
+        json={"client_id": "C00001", "phone_number": "+51999123456"},
+        headers=auth(token),
+    )
     assert resp.status_code == 403
 
 
 def test_start_cliente_inexistente(client):
     token = login(client)
-    resp = client.post("/api/calls/start", json={"client_id": "C09999"}, headers=auth(token))
+    resp = client.post(
+        "/api/calls/start",
+        json={"client_id": "C09999", "phone_number": "+51999123456"},
+        headers=auth(token),
+    )
     assert resp.status_code == 404
 
 

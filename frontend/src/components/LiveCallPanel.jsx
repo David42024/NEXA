@@ -2,11 +2,6 @@ import React, { useEffect, useRef, useState } from 'react'
 import {
   Phone,
   PhoneOff,
-  Mic,
-  MicOff,
-  Copy,
-  Check,
-  Link2,
   PhoneCall,
   Timer,
   FileDown,
@@ -14,13 +9,13 @@ import {
   Bot,
   MessageSquareText,
 } from 'lucide-react'
-import { useAsesorCall, useAsesorPhoneCall, fmtDuration } from '../hooks/useCall'
+import { useAsesorCall, fmtDuration } from '../hooks/useCall'
 
 /**
- * Llamada en vivo real (WebRTC): el asesor inicia la llamada, comparte el
- * enlace con el "cliente" y negocia el audio peer-to-peer. La transcripcion del
- * cliente alimenta al copilot Nexabot en tiempo real (via onCopilotEvent).
- * Al colgar: mensaje "Guardando grabacion…" y descarga del reporte PDF del E2E.
+ * Llamada en vivo real via Twilio: el asesor marca a un numero de telefono
+ * verdadero. El audio lo maneja Twilio (Media Streams) y el copilot Nexabot
+ * escucha la voz del cliente en tiempo real.
+ * Al colgar: descarga del reporte PDF del E2E y grabacion de la llamada.
  */
 export default function LiveCallPanel({
   clientId,
@@ -32,13 +27,10 @@ export default function LiveCallPanel({
   onCallEnded,
   onCallReset,
 }) {
-  const [copied, setCopied] = useState(false)
   const [savingRecording, setSavingRecording] = useState(false)
   const [lastOffering, setLastOffering] = useState(null)
-  const [handoff, setHandoff] = useState(null) // aceptacion del cliente -> tomar control
+  const [handoff, setHandoff] = useState(null)
   const [phoneNumber, setPhoneNumber] = useState('')
-  const [callMode, setCallMode] = useState('webrtc') // webrtc | twilio
-  const audioRef = useRef(null)
   const wasActive = useRef(false)
   const lastOfferingRef = useRef(null)
 
@@ -75,11 +67,8 @@ export default function LiveCallPanel({
       .catch(() => {})
   }
 
-  // Descarga el audio de la llamada: primero la grabacion completa del backend
-  // (cliente + asesor + voz del bot); si aun no esta, cae al blob local
-  // (solo microfonos WebRTC, sin el bot).
   function downloadRecording() {
-    const url = activeCall.recordingUrl
+    const url = call.recordingUrl
     if (!url) return
     const save = (blob) => {
       const objUrl = URL.createObjectURL(blob)
@@ -91,55 +80,25 @@ export default function LiveCallPanel({
       a.remove()
       setTimeout(() => URL.revokeObjectURL(objUrl), 4000)
     }
-    const fromBlob = (u) => fetch(u).then((r) => r.blob()).then(save)
     const fromServer = (u) => {
       const token = localStorage.getItem('nexa_token')
       return fetch(u, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
         .then((r) => { if (!r.ok) throw new Error(r.statusText); return r.blob() })
         .then(save)
     }
-    const fallback = call.localRecordingUrl
-    const attempt = url.startsWith('blob:') ? fromBlob(url) : fromServer(url)
-    if (fallback && !url.startsWith('blob:')) {
-      attempt.catch(() => fromBlob(fallback)).catch(() => {})
-    } else {
-      attempt.catch(() => {})
-    }
+    fromServer(url).catch(() => {})
   }
 
   const call = useAsesorCall({
     clientId,
-    onCopilotEvent,
-    onOffering: handleOfferingEvent,
-    onAcceptance: (msg) => setHandoff(msg),
-    onRemoteStream: (stream) => {
-      if (audioRef.current) {
-        audioRef.current.srcObject = stream
-        audioRef.current.play().catch(() => {})
-      }
-    },
-  })
-
-  const phoneCall = useAsesorPhoneCall({
-    clientId,
     phoneNumber,
     onCopilotEvent,
     onOffering: handleOfferingEvent,
-    onRemoteStream: (stream) => {
-      if (audioRef.current) {
-        audioRef.current.srcObject = stream
-        audioRef.current.play().catch(() => {})
-      }
-    },
+    onAcceptance: (msg) => setHandoff(msg),
   })
 
-  // El hook activo depende del modo seleccionado
-  const activeCall = callMode === 'twilio' ? phoneCall : call
-
-  // Al terminar una llamada que sí llegó a conectarse: "Guardando grabacion…",
-  // luego auto-descarga el PDF del flujo y avisa para completar datos.
   useEffect(() => {
-    const ph = activeCall.phase
+    const ph = call.phase
     if (ph === 'idle') {
       lastOfferingRef.current = null
       setLastOffering(null)
@@ -158,18 +117,11 @@ export default function LiveCallPanel({
       }, 2600)
       return () => clearTimeout(t)
     }
-  }, [activeCall.phase, onCallEnded])
+  }, [call.phase, onCallEnded])
 
   const firstName = clientName?.split(' ')[0] || 'cliente'
 
-  function copyLink() {
-    const url = call.callInfo?.url || ''
-    navigator.clipboard?.writeText(url)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  const live = activeCall.phase === 'ringing' || activeCall.phase === 'active' || activeCall.phase === 'dialing'
+  const live = call.phase === 'ringing' || call.phase === 'active' || call.phase === 'dialing'
 
   return (
     <div className="card p-5">
@@ -178,31 +130,24 @@ export default function LiveCallPanel({
         {live && (
           <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
             <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-            {call.phase === 'active' ? 'En llamada · P2P' : 'Esperando respuesta'}
+            {call.phase === 'active' ? 'En llamada · PSTN' : 'Esperando respuesta'}
           </span>
         )}
       </div>
       <p className="mb-4 text-xs text-slate-400">
-        Llamada WebRTC peer-to-peer o via Twilio (telefono real). Elige el modo y
-        el_numero del cliente. La IA escucha la voz de ambos en tiempo real.
+        Llamada telefónica real via Twilio. Ingresa el número del cliente y la IA
+        escucha la voz de ambos en tiempo real.
       </p>
 
-      {!activeCall.sttSupported && (
-        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200">
-          La transcripción de voz requiere Chrome o Edge: en este navegador el bot no
-          podrá escuchar la llamada.
-        </p>
-      )}
-
-      <audio ref={audioRef} autoPlay className="hidden" />
+      <audio ref={useRef()} autoPlay className="hidden" />
 
       {live && (
         <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-navy-950/50">
             <button
               type="button"
-              onClick={() => activeCall.switchMode('bot')}
+              onClick={() => call.switchMode('bot')}
               className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
-                activeCall.mode === 'bot'
+                call.mode === 'bot'
                   ? 'bg-cyan-500 text-white shadow-sm'
                   : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
               }`}
@@ -212,9 +157,9 @@ export default function LiveCallPanel({
             </button>
             <button
               type="button"
-              onClick={() => activeCall.switchMode('asesor')}
+              onClick={() => call.switchMode('asesor')}
               className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
-                activeCall.mode === 'asesor'
+                call.mode === 'asesor'
                   ? 'bg-navy-800 text-white shadow-sm dark:bg-white dark:text-navy-900'
                   : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
               }`}
@@ -225,75 +170,33 @@ export default function LiveCallPanel({
         </div>
       )}
 
-      {call.phase === 'idle' && phoneCall.phase === 'idle' && (
+      {call.phase === 'idle' && (
         <>
-          {/* Toggle modo WebRTC / Twilio */}
-          <div className="mb-3 grid grid-cols-2 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-navy-950/50">
-            <button
-              type="button"
-              onClick={() => setCallMode('webrtc')}
-              className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
-                callMode === 'webrtc'
-                  ? 'bg-navy-800 text-white shadow-sm dark:bg-white dark:text-navy-900'
-                  : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
-              }`}
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              Enlace WebRTC
-            </button>
-            <button
-              type="button"
-              onClick={() => setCallMode('twilio')}
-              className={`flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${
-                callMode === 'twilio'
-                  ? 'bg-cyan-500 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-navy-900 dark:text-slate-400 dark:hover:text-white'
-              }`}
-            >
-              <Phone className="h-3.5 w-3.5" />
-              Llamada real
-            </button>
+          <div className="mb-3">
+            <label className="mb-1 block text-[11px] font-medium text-slate-400">
+              Numero del cliente
+            </label>
+            <input
+              type="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+51 999 123 456"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-slate-500"
+            />
+            <p className="mt-1 text-[10px] text-slate-400">
+              En trial, solo numeros verificados en Twilio.
+            </p>
           </div>
 
-          {/* Campo de telefono (solo en modo Twilio) */}
-          {callMode === 'twilio' && (
-            <div className="mb-3">
-              <label className="mb-1 block text-[11px] font-medium text-slate-400">
-                Numero del cliente
-              </label>
-              <input
-                type="tel"
-                value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
-                placeholder="+51 999 123 456"
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-slate-500"
-              />
-              <p className="mt-1 text-[10px] text-slate-400">
-                En trial, solo numeros verificados en Twilio.
-              </p>
-            </div>
-          )}
-
           <div className="flex gap-2">
-            {callMode === 'webrtc' ? (
-              <button
-                onClick={call.start}
-                disabled={!canStart}
-                className="btn-primary flex flex-1 items-center justify-center gap-2 text-sm"
-              >
-                <Phone className="h-4 w-4" />
-                Llamar a {firstName}
-              </button>
-            ) : (
-              <button
-                onClick={() => phoneCall.start()}
-                disabled={!canStart || !phoneNumber.trim()}
-                className="btn-primary flex flex-1 items-center justify-center gap-2 text-sm"
-              >
-                <Phone className="h-4 w-4" />
-                Marcar a {phoneNumber || firstName}
-              </button>
-            )}
+            <button
+              onClick={() => call.start()}
+              disabled={!canStart || !phoneNumber.trim()}
+              className="btn-primary flex flex-1 items-center justify-center gap-2 text-sm"
+            >
+              <Phone className="h-4 w-4" />
+              Marcar a {phoneNumber || firstName}
+            </button>
             {onStartChat && (
               <button
                 onClick={onStartChat}
@@ -313,79 +216,47 @@ export default function LiveCallPanel({
         </>
       )}
 
-      {activeCall.phase === 'starting' && (
-        <p className="py-6 text-center text-sm text-slate-400">Preparando la llamada…</p>
-      )}
-
-      {activeCall.phase === 'dialing' && (
+      {call.phase === 'dialing' && (
         <div>
           <p className="mb-3 flex items-center gap-2 text-sm text-slate-500">
             <PhoneCall className="h-4 w-4 animate-pulse text-emerald-500" />
-            Marcando a {phoneNumber || firstName}…
+            Marcando a {phoneNumber || firstName}...
           </p>
           <p className="mb-3 text-[11px] text-slate-400">
             Twilio esta marcando el numero real. Espera a que se conteste.
           </p>
-          <button onClick={() => activeCall.hangup('cancelled')} className="btn-secondary w-full text-xs">
+          <button onClick={() => call.hangup('cancelled')} className="btn-secondary w-full text-xs">
             Cancelar llamada
           </button>
         </div>
       )}
 
-      {activeCall.phase === 'ringing' && (
+      {call.phase === 'ringing' && (
         <div>
           <p className="mb-3 flex items-center gap-2 text-sm text-slate-500">
             <PhoneCall className="h-4 w-4 animate-pulse text-emerald-500" />
-            Esperando que {firstName} acepte…
+            Esperando que {firstName} acepte...
           </p>
-          <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-white/10 dark:bg-white/5">
-            <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-              Enlace para el cliente (ábrelo en otra pestaña)
-            </p>
-            <p className="mb-2 truncate text-[11px] text-slate-600 dark:text-slate-300">
-              {call.callInfo?.url}
-            </p>
-            <button
-              onClick={copyLink}
-              className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400"
-            >
-              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-              {copied ? 'Enlace copiado' : 'Copiar enlace'}
-            </button>
-          </div>
-          <button onClick={() => activeCall.hangup('cancelled')} className="btn-secondary w-full text-xs">
+          <button onClick={() => call.hangup('cancelled')} className="btn-secondary w-full text-xs">
             Cancelar llamada
           </button>
         </div>
       )}
 
-      {activeCall.phase === 'active' && (
+      {call.phase === 'active' && (
         <div>
           <div className="mb-4 flex flex-col items-center rounded-xl bg-slate-50 py-5 dark:bg-white/5">
             <p className="font-display text-3xl font-bold tabular-nums text-navy-900 dark:text-white">
-              {fmtDuration(activeCall.duration)}
+              {fmtDuration(call.duration)}
             </p>
             <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
               <Timer className="h-3 w-3" />
-              {callMode === 'twilio'
-                ? `Hablando con ${phoneNumber || firstName} · PSTN`
-                : `Hablando con ${firstName} · audio P2P`}
+              Hablando con {phoneNumber || firstName} via PSTN
             </p>
           </div>
           <div className="flex items-center justify-center gap-2">
             <button
-              onClick={activeCall.toggleMute}
-              className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-                activeCall.muted
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-400/10 dark:text-amber-300'
-                  : 'bg-white text-slate-600 shadow-sm border border-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-slate-300'
-              }`}
-            >
-              {activeCall.muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
-              {activeCall.muted ? 'Micrófono apagado' : 'Micrófono'}
-            </button>
-            <button
-              onClick={() => activeCall.hangup()}
+              onClick={() => call.hangup()}
               className="flex items-center gap-2 rounded-full bg-rose-600 px-5 py-2 text-xs font-semibold text-white transition-colors hover:bg-rose-700"
             >
               <PhoneOff className="h-3.5 w-3.5" />
@@ -395,22 +266,22 @@ export default function LiveCallPanel({
         </div>
       )}
 
-      {activeCall.phase === 'ended' &&
+      {call.phase === 'ended' &&
         (savingRecording ? (
           <div className="py-5 text-center">
             <Loader2 className="mx-auto h-6 w-6 animate-spin text-emerald-500" />
             <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              Guardando grabación…
+              Guardando grabacion...
             </p>
             <p className="mt-0.5 text-[11px] text-slate-400">
-              Se está registrando el audio como medio probatorio.
+              Se esta registrando el audio como medio probatorio.
             </p>
           </div>
         ) : (
           <div>
             <p className="mb-1 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
               <PhoneOff className="h-4 w-4" />
-              Llamada finalizada · {fmtDuration(activeCall.duration)}
+              Llamada finalizada · {fmtDuration(call.duration)}
             </p>
             <p className="mb-3 text-center text-[11px] text-slate-400">
               Registrar el contacto y el resultado en el seguimiento E2E.
@@ -424,7 +295,7 @@ export default function LiveCallPanel({
                 Descargar reporte PDF del flujo
               </button>
             )}
-            {activeCall.recordingUrl && (
+            {call.recordingUrl && (
               <button
                 onClick={downloadRecording}
                 className="mb-2 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-500/20 dark:border-cyan-400/30 dark:text-cyan-300"
@@ -433,36 +304,26 @@ export default function LiveCallPanel({
                 Descargar audio · {fmtDuration(call.duration)}
               </button>
             )}
-            <button onClick={activeCall.reset} className="btn-secondary w-full text-xs">
+            <button onClick={call.reset} className="btn-secondary w-full text-xs">
               Nueva llamada
             </button>
           </div>
         ))}
 
-      {activeCall.phase === 'ringing' && call.callInfo && (
-        <p className="mt-2 flex items-center justify-center gap-1 text-[10px] text-slate-400">
-          <Link2 className="h-3 w-3" />
-          Demo: el "cliente" es la pestaña que abrió el enlace.
-        </p>
-      )}
+      {call.error && <p className="mt-2 text-xs text-rose-600">{call.error}</p>}
 
-      {activeCall.error && <p className="mt-2 text-xs text-rose-600">{activeCall.error}</p>}
-
-      {handoff && activeCall.phase === 'active' && (
+      {handoff && call.phase === 'active' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-950/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-emerald-300 bg-white p-6 text-center shadow-2xl dark:border-emerald-400/40 dark:bg-navy-900">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              <Check className="h-6 w-6" />
-            </div>
             <h3 className="mt-4 font-display text-lg font-bold text-navy-900 dark:text-white">
-              {firstName} aceptó la oferta
+              {firstName} acepto la oferta
             </h3>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-300">
-              “{handoff.text}”. Es el momento del cierre: ¿tomas el control de la llamada?
+              "{handoff.text}". Es el momento del cierre: tomas el control de la llamada?
             </p>
             <div className="mt-6 flex flex-col gap-2">
               <button
-                onClick={() => { activeCall.switchMode('asesor'); setHandoff(null) }}
+                onClick={() => { call.switchMode('asesor'); setHandoff(null) }}
                 className="btn-primary flex w-full items-center justify-center gap-2 text-sm"
               >
                 <Phone className="h-4 w-4" />

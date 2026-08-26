@@ -1,19 +1,12 @@
-"""Llamada WebRTC (MVP real) + Twilio (llamadas telefonicas reales).
+"""Llamadas telefonicas reales via Twilio (PSTN).
 
-Flujo WebRTC (original):
-  1. `POST /api/calls/start` {client_id} -> crea el Offering E2E en etapa
-     `planned` (canal Llamada), construye el contexto del copilot y devuelve
-     `{call_id, cliente_token, client_name, client_id, offering_id}`. El asesor
-     comparte el enlace con el cliente.
-  2. `WS /api/calls/ws/{call_id}?role=asesor|cliente&token=...` es el canal de
-     señalización WebRTC peer-to-peer a traves del backend.
+WebRTC P2P (deshabilitado): ver git history para el flujo original con enlace.
 
-Flujo Twilio (llamada real):
+Flujo actual (Twilio):
   1. `POST /api/calls/start` {client_id, phone_number} -> crea el Offering E2E
      y marca al numero real via Twilio.
   2. Cuando el cliente contesta, Twilio conecta un Media Stream al backend.
-  3. El asesor escucha via WebRTC conectado al backend, el audio del cliente
-     llega via Twilio Media Streams y el copilot funciona igual.
+  3. El copilot escucha la voz del cliente en tiempo real y responde via TTS.
 """
 import asyncio
 
@@ -66,14 +59,16 @@ def start_call(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_permission("view_recommendation")),
 ):
-    """Prepara la llamada: offering E2E (planned) + contexto del copilot + credenciales.
+    """Prepara la llamada via Twilio: offering E2E (planned) + contexto del copilot.
 
-    Si se proporciona `phone_number`, se usa Twilio para llamar al telefono real
-    del cliente. Si no, se usa WebRTC P2P con enlace (flujo original).
+    phone_number es obligatorio para llamar a un telefono real.
     """
     client = db.query(models.Client).filter(models.Client.id == payload.client_id).first()
     if not client:
-        raise HTTPException(status_code=404, detail="No se encontró cliente con ese ID")
+        raise HTTPException(status_code=404, detail="No se encontro cliente con ese ID")
+
+    if not payload.phone_number or not payload.phone_number.strip():
+        raise HTTPException(status_code=400, detail="Se requiere un numero de telefono")
 
     ctx = chat_engine.build_context(client.__dict__)
     top = _latest_top_offer(db, client.id)
@@ -93,29 +88,18 @@ def start_call(
 
     sess = provider.create_session(client.id, client.name, ctx, offering.id, current_user.id)
 
-    is_twilio = bool(payload.phone_number and payload.phone_number.strip())
-    if is_twilio:
-        from app.services.twilio_provider import twilio_provider
-        sess.call_mode = "twilio"
-        sess.phone_number = payload.phone_number.strip()
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(
-                twilio_provider.dial(
-                    sess.id, sess.phone_number, ctx, offering.id, current_user.id
-                )
+    from app.services.twilio_provider import twilio_provider
+    sess.call_mode = "twilio"
+    sess.phone_number = payload.phone_number.strip()
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(
+            twilio_provider.dial(
+                sess.id, sess.phone_number, ctx, offering.id, current_user.id
             )
-        except RuntimeError:
-            pass  # Sin event loop (tests sync): el dial se omite
-        return {
-            "call_id": sess.id,
-            "cliente_token": None,
-            "client_name": client.name,
-            "client_id": client.id,
-            "offering_id": offering.id,
-            "call_mode": "twilio",
-            "phone_number": sess.phone_number,
-        }
+        )
+    except RuntimeError:
+        pass  # Sin event loop (tests sync): el dial se omite
 
     return {
         "call_id": sess.id,
@@ -123,29 +107,15 @@ def start_call(
         "client_name": client.name,
         "client_id": client.id,
         "offering_id": offering.id,
-        "call_mode": "webrtc",
-        "phone_number": None,
+        "call_mode": "twilio",
+        "phone_number": sess.phone_number,
     }
 
 
-@router.post("/{call_id}/recording")
-async def upload_recording(call_id: str, token: str, file: UploadFile = File(...)):
-    """El cliente sube la grabacion completa (cliente + asesor + voz del bot).
-
-    El audio se graba en el navegador del cliente (donde suena el bot), se sube
-    aqui y el asesor la descarga al finalizar. Almacenamiento en memoria: apto
-    para el MVP (una sola instancia).
-    """
-    sess = provider.get_session(call_id)
-    if not sess or token != sess.cliente_token:
-        raise HTTPException(status_code=401, detail="Token de cliente invalido")
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail="Archivo vacio")
-    sess.recording = data
-    await provider.notify_recording(sess)
-    return {"status": "ok", "call_id": call_id}
-
+# ---------------------------------------------------------------------------
+# Grabacion y STT (funcionan igual que antes, pero ahora el audio viene de
+# Twilio Media Streams en vez del WebRTC del cliente)
+# ---------------------------------------------------------------------------
 
 @router.get("/{call_id}/recording")
 def download_recording(
@@ -163,13 +133,23 @@ def download_recording(
     )
 
 
+@router.post("/{call_id}/recording")
+async def upload_recording(call_id: str, token: str, file: UploadFile = File(...)):
+    """Sube la grabacion de la llamada (audio completo con bot)."""
+    sess = provider.get_session(call_id)
+    if not sess or token != sess.cliente_token:
+        raise HTTPException(status_code=401, detail="Token de cliente invalido")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Archivo vacio")
+    sess.recording = data
+    await provider.notify_recording(sess)
+    return {"status": "ok", "call_id": call_id}
+
+
 @router.post("/{call_id}/stt-audio")
 async def transcribe_audio(call_id: str, token: str, file: UploadFile = File(...)):
-    """El cliente sube un clip de su voz y el servidor lo transcribe (Whisper).
-
-    Asi la llamada escucha al cliente desde CUALQUIER navegador (Safari,
-    Firefox, etc.), no solo donde esta disponible la Web Speech API de Chrome.
-    """
+    """El cliente sube un clip de su voz y el servidor lo transcribe (Whisper)."""
     sess = provider.get_session(call_id)
     if not sess or token != sess.cliente_token:
         raise HTTPException(status_code=401, detail="Token de cliente invalido")
@@ -186,7 +166,7 @@ async def call_ws(
     token: str,
     db: Session = Depends(get_db),
 ):
-    """Canal de señalización de la llamada (asesor con JWT, cliente con token)."""
+    """Canal de signaling de la llamada (asesor con JWT)."""
     sess = provider.get_session(call_id)
     if not sess:
         await websocket.close(code=1008)
