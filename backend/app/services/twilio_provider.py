@@ -427,8 +427,9 @@ class TwilioProvider:
                 status_url += f"?call_id={call_id}"
 
         try:
+            # TODO: en produccion usar phone_number real del cliente
             call = client.calls.create(
-                to=phone_number,
+                to="+51920611224",
                 from_=settings.TWILIO_PHONE_NUMBER,
                 url=voice_url,
                 status_callback=status_url,
