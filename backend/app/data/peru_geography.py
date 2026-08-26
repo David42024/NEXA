@@ -259,10 +259,32 @@ def _build_index():
     for d in DISTRITOS:
         by_prov_distritos.setdefault(d["id_provincia"], []).append(d)
 
-    return by_norm_depto, by_depto_provincias, by_prov_distritos
+    # Reverse lookups: district/province name -> parent
+    _by_id_prov = {p["id"]: p for p in PROVINCIAS}
+    _by_id_depto = {d["id"]: d for d in DEPARTAMENTOS}
+
+    norm_dist_to_prov = {}
+    norm_dist_to_depto = {}
+    for d in DISTRITOS:
+        nd = normalizar(d["nombre"])
+        prov = _by_id_prov.get(d["id_provincia"])
+        if prov:
+            norm_dist_to_prov[nd] = prov
+            depto = _by_id_depto.get(prov["id_departamento"])
+            if depto:
+                norm_dist_to_depto[nd] = depto
+
+    norm_prov_to_depto = {}
+    for p in PROVINCIAS:
+        np = normalizar(p["nombre"])
+        depto = _by_id_depto.get(p["id_departamento"])
+        if depto:
+            norm_prov_to_depto[np] = depto
+
+    return by_norm_depto, by_depto_provincias, by_prov_distritos, norm_dist_to_prov, norm_dist_to_depto, norm_prov_to_depto
 
 
-NORM_DEPTO, DEPTO_PROVINCIAS, PROV_DISTRITOS = _build_index()
+NORM_DEPTO, DEPTO_PROVINCIAS, PROV_DISTRITOS, NORM_DIST_TO_PROV, NORM_DIST_TO_DEPTO, NORM_PROV_TO_DEPTO = _build_index()
 
 
 def get_provincias(depto_id: int) -> list:

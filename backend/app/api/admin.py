@@ -534,18 +534,17 @@ def get_heatmap(
 
     nivel: 'departamento', 'provincia' o 'distrito'
     id_padre: ID del padre (requerido para provincia y distrito)
-    """
-    # Claves del profile JSON donde se almacena el departamento
-    DEPT_KEYS = ("ubicacion_departamento", "direccion", "distrito")
-    PROV_KEYS = ("ubicacion_provincia", "provincia")
-    DIST_KEYS = ("ubicacion_distrito", "distrito_real")
 
-    if nivel == "departamento":
-        key_candidates = DEPT_KEYS
-    elif nivel == "provincia":
-        key_candidates = PROV_KEYS
-    else:
-        key_candidates = DIST_KEYS
+    Los perfiles demo solo tienen 'distrito' (nombre de distrito, ej "Los Olivos").
+    El endpoint resuelve la jerarquia automaticamente via reverse-lookup en
+    peru_geography para que los datos se agreguen correctamente.
+    """
+    from app.data.peru_geography import (
+        DEPARTAMENTOS, PROVINCIAS, DISTRITOS,
+        normalizar as norm_geo,
+        NORM_DIST_TO_DEPTO, NORM_DIST_TO_PROV, NORM_PROV_TO_DEPTO,
+        NORM_DEPTO,
+    )
 
     # Agregacion portable: barrido por lotes
     counts = {}
@@ -559,31 +558,73 @@ def get_heatmap(
             break
         for _, profile in rows:
             p = profile or {}
-            geo_name = None
-            for k in key_candidates:
-                val = p.get(k)
-                if val:
-                    geo_name = str(val).strip()
-                    break
-            if not geo_name:
-                continue
-
             elig = p.get("elegibilidad", {})
             has_mt = bool(elig.get("movistar_total"))
 
-            entry = counts.setdefault(geo_name, {"total": 0, "sin_mt": 0})
-            entry["total"] += 1
-            if not has_mt:
-                entry["sin_mt"] += 1
+            # Extract raw geo names from profile
+            raw_dept = p.get("ubicacion_departamento")
+            raw_prov = p.get("ubicacion_provincia")
+            raw_dist = p.get("ubicacion_distrito") or p.get("distrito")
+
+            # Derive what we can from whatever is available
+            dept_name = None
+            prov_name = None
+            dist_name = None
+
+            if raw_dept:
+                dept_name = str(raw_dept).strip()
+            if raw_prov:
+                prov_name = str(raw_prov).strip()
+            if raw_dist:
+                dist_name = str(raw_dist).strip()
+
+            # Reverse-lookup: if only district is known, derive dept and prov
+            if dist_name and not dept_name:
+                nd = norm_geo(dist_name)
+                parent_depto = NORM_DIST_TO_DEPTO.get(nd)
+                if parent_depto:
+                    dept_name = parent_depto["nombre"]
+                parent_prov = NORM_DIST_TO_PROV.get(nd)
+                if parent_prov:
+                    prov_name = parent_prov["nombre"]
+                # Fallback: the "distrito" field may hold a province name
+                # (old seeds used province names when no districts existed)
+                if not dept_name:
+                    parent_depto_prov = NORM_PROV_TO_DEPTO.get(nd)
+                    if parent_depto_prov:
+                        dept_name = parent_depto_prov["nombre"]
+                        if not prov_name:
+                            prov_name = dist_name
+
+            if prov_name and not dept_name:
+                np = norm_geo(prov_name)
+                parent_depto = NORM_PROV_TO_DEPTO.get(np)
+                if parent_depto:
+                    dept_name = parent_depto["nombre"]
+
+            # Add to counts for the requested level
+            if nivel == "departamento" and dept_name:
+                key = norm_geo(dept_name)
+                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": dept_name})
+                entry["total"] += 1
+                if not has_mt:
+                    entry["sin_mt"] += 1
+            elif nivel == "provincia" and prov_name:
+                key = norm_geo(prov_name)
+                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": prov_name})
+                entry["total"] += 1
+                if not has_mt:
+                    entry["sin_mt"] += 1
+            elif nivel == "distrito" and dist_name:
+                key = norm_geo(dist_name)
+                entry = counts.setdefault(key, {"total": 0, "sin_mt": 0, "raw_name": dist_name})
+                entry["total"] += 1
+                if not has_mt:
+                    entry["sin_mt"] += 1
+
         last_id = rows[-1][0]
 
-    # Mapear nombre geografico -> id numerico usando la jerarquia
-    from app.data.peru_geography import (
-        DEPARTAMENTOS, PROVINCIAS, DISTRITOS,
-        normalizar as norm_geo,
-    )
-
-    items = []
+    # Map normalized name -> id using the geography hierarchy
     if nivel == "departamento":
         norm_map = {norm_geo(d["nombre"]): d["id"] for d in DEPARTAMENTOS}
     elif nivel == "provincia":
@@ -591,13 +632,14 @@ def get_heatmap(
     else:
         norm_map = {norm_geo(d["nombre"]): d["id"] for d in DISTRITOS}
 
-    for geo_name, data in counts.items():
-        geo_id = norm_map.get(norm_geo(geo_name))
+    items = []
+    for norm_key, data in counts.items():
+        geo_id = norm_map.get(norm_key)
         if geo_id is None:
             continue
         items.append({
             "id": geo_id,
-            "descripcion": geo_name,
+            "descripcion": data["raw_name"],
             "totalClientes": data["total"],
             "clientesSinMovistarTotal": data["sin_mt"],
         })
