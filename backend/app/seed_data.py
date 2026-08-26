@@ -260,6 +260,15 @@ def seed():
         # --- Usuarios demo ---
         users = [
             {"email": "asesor@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Ana Torres"},
+            {"email": "asesor2@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Jose Manuel"},
+            {"email": "asesor3@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Carmen Ruiz"},
+            {"email": "asesor4@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Luis Vargas"},
+            {"email": "asesor5@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Maria Fernandez"},
+            {"email": "asesor6@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Carlos Mendoza"},
+            {"email": "asesor7@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Rosa Garcia"},
+            {"email": "asesor8@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Pedro Sanchez"},
+            {"email": "asesor9@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Lucia Romero"},
+            {"email": "asesor10@nexa.demo", "password": "asesor123", "role": "asesor", "name": "Jorge Castillo"},
             {"email": "supervisor@nexa.demo", "password": "supervisor123", "role": "supervisor", "name": "Luis Ramirez"},
             {"email": "admin@nexa.demo", "password": "admin123", "role": "admin", "name": "Admin NEXA"},
         ]
@@ -282,7 +291,7 @@ def seed():
         db.flush()
 
         # --- Clientes sinteticos ---
-        N_CLIENTS = 60
+        N_CLIENTS = 8000
         clients = []
         for i in range(1, N_CLIENTS + 1):
             profile = build_client_profile(i)
@@ -298,18 +307,19 @@ def seed():
             clients.append(client)
         db.flush()
 
-        # Asignar la cartera: todos los clientes al asesor demo.
-        asesor_user = db.query(models.User).filter(models.User.role == "asesor").first()
-        if asesor_user:
-            for client in clients:
-                client.asesor_id = asesor_user.id
+        # Asignar la cartera: 800 clientes por asesor (round-robin entre 10 asesores).
+        asesores = db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all()
+        if asesores:
+            for i, client in enumerate(clients):
+                client.asesor_id = asesores[i % len(asesores)].id
 
         # El funnel (funnel_daily) y las interacciones se siembran aparte con
         # volumen demo modesto y coherente: ver seed_demo_activity() abajo.
         # En produccion estos datos se registran con uso real.
 
         db.commit()
-        print(f"Seed completo: {len(db_users)} usuarios, {len(offers)} ofertas, {len(clients)} clientes.")
+        n_asesores = len([u for u in users if u["role"] == "asesor"])
+        print(f"Seed completo: {len(db_users)} usuarios ({n_asesores} asesores), {len(offers)} ofertas, {len(clients)} clientes ({len(clients)//n_asesores} por asesor).")
         print("Credenciales demo:")
         for u in users:
             print(f"  {u['role']:10s} -> {u['email']} / {u['password']}")
@@ -343,11 +353,18 @@ def seed_demo_activity(db=None):
         db.query(models.Recommendation).delete()
         db.query(models.Offering).delete()
 
-        # Asegura 3 asesores demo (el supervisor ve su desempeño).
+        # Asegura los asesores demo (el supervisor ve su desempeño).
         DEMO_ASESORES = [
-            {"email": "asesor@nexa.demo", "name": "Miguel Angel"},
+            {"email": "asesor@nexa.demo", "name": "Ana Torres"},
             {"email": "asesor2@nexa.demo", "name": "Jose Manuel"},
             {"email": "asesor3@nexa.demo", "name": "Carmen Ruiz"},
+            {"email": "asesor4@nexa.demo", "name": "Luis Vargas"},
+            {"email": "asesor5@nexa.demo", "name": "Maria Fernandez"},
+            {"email": "asesor6@nexa.demo", "name": "Carlos Mendoza"},
+            {"email": "asesor7@nexa.demo", "name": "Rosa Garcia"},
+            {"email": "asesor8@nexa.demo", "name": "Pedro Sanchez"},
+            {"email": "asesor9@nexa.demo", "name": "Lucia Romero"},
+            {"email": "asesor10@nexa.demo", "name": "Jorge Castillo"},
         ]
         asesores = []
         for d in DEMO_ASESORES:
@@ -374,7 +391,8 @@ def seed_demo_activity(db=None):
 
         # Sesgo de aceptacion por asesor (demo: niveles de cumplimiento distintos
         # para que el panel de supervisión muestre cumple / en curso / bajo).
-        bias = {a.id: [0.75, 0.55, 0.30][i % 3] for i, a in enumerate(asesores)}
+        acceptance_rates = [0.75, 0.65, 0.55, 0.50, 0.45, 0.40, 0.35, 0.30, 0.25, 0.20]
+        bias = {a.id: acceptance_rates[i % len(acceptance_rates)] for i, a in enumerate(asesores)}
 
         rnd = random.Random(7)
         DAYS_FUNNEL = 90
@@ -589,10 +607,11 @@ def backfill_campania_ofertas(db) -> int:
 
 
 def backfill_asesor_cartera(db) -> int:
-    """Backfill idempotente: asigna clientes sin asesor_id a un asesor demo.
+    """Backfill idempotente: asigna clientes sin asesor_id a los asesores demo.
 
     Si un asesor tiene clientes asignados (via csv_loader), no se toca nada.
-    Solo se asignan clientes con asesor_id IS NULL al primer asesor disponible.
+    Solo se asignan clientes con asesor_id IS NULL distribuyendolos entre todos
+    los asesores disponibles (round-robin).
     """
     tiene_cartera = db.query(models.Client.id).filter(
         models.Client.asesor_id.isnot(None)
@@ -600,13 +619,13 @@ def backfill_asesor_cartera(db) -> int:
     if tiene_cartera:
         return 0
 
-    asesor = db.query(models.User).filter(models.User.role == "asesor").first()
-    if not asesor:
+    asesores = db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all()
+    if not asesores:
         return 0
 
     updated = 0
-    for c in _clients_batches(db, commit_each=True, solo_sinteticos=True):
+    for i, c in enumerate(_clients_batches(db, commit_each=True, solo_sinteticos=True)):
         if c.asesor_id is None:
-            c.asesor_id = asesor.id
+            c.asesor_id = asesores[i % len(asesores)].id
             updated += 1
     return updated

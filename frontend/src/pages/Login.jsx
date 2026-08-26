@@ -137,12 +137,17 @@ export default function Login() {
             }
             const usersWithPasswords = data.users
               .filter(u => ['asesor', 'supervisor', 'admin'].includes(u.role?.toLowerCase()))
-              .slice(0, 3)
-              .map(user => ({
-                ...user,
-                description: ROLE_DESCRIPTIONS[user.role.toLowerCase()] || '',
-                password: ROLE_PASSWORDS[user.role.toLowerCase()] || 'demo123'
-              }))
+              .reduce((acc, user) => {
+                const role = user.role.toLowerCase()
+                if (!acc.find(u => u.role.toLowerCase() === role)) {
+                  acc.push({
+                    ...user,
+                    description: ROLE_DESCRIPTIONS[role] || '',
+                    password: ROLE_PASSWORDS[role] || 'demo123'
+                  })
+                }
+                return acc
+              }, [])
             if (usersWithPasswords.length >= 3) {
               setDemoUsers(usersWithPasswords)
             }
