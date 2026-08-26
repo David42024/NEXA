@@ -101,6 +101,23 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
     return joinByName(features, nameKey, parentKey)
   }, [currentGeojson, nivel, parentContext, joinByName, nameKey, parentKey])
 
+  const filteredGeojson = useMemo(() => {
+    if (!currentGeojson?.features) return null
+    let features = currentGeojson.features
+
+    if (nivel === 'provincia' && parentContext?.deptoName) {
+      features = features.filter(f =>
+        normalizeNombre(f.properties?.FIRST_NOMB) === parentContext.deptoName
+      )
+    } else if (nivel === 'distrito' && parentContext?.provName) {
+      features = features.filter(f =>
+        normalizeNombre(f.properties?.NOMBPROV) === parentContext.provName
+      )
+    }
+
+    return { ...currentGeojson, features }
+  }, [currentGeojson, nivel, parentContext])
+
   const min = useMemo(() => {
     if (items.length === 0) return 0
     const values = items.map(i => i.value).filter(v => v != null)
@@ -185,7 +202,7 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
               </div>
             ) : (
               <GeoLayer
-                geojson={currentGeojson}
+                geojson={filteredGeojson}
                 items={items}
                 nivel={nivel}
                 min={min}
