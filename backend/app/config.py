@@ -19,7 +19,7 @@ def _normalize_db_url(url: str) -> str:
 
 
 class Settings:
-    DATABASE_URL: str = _normalize_db_url(os.getenv("DATABASE_URL", "sqlite:///./nexa.db"))
+    DATABASE_URL: str = _normalize_db_url(os.getenv("DATABASE_URL", "postgresql+psycopg2://neondb_owner:npg_Or8dDZT5LMVY@ep-patient-fire-ay1mxqp9-pooler.c-5.us-east-2.aws.neon.tech/neondb?sslmode=require"))
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change_this_secret_in_production")
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = int(os.getenv("JWT_EXPIRATION_HOURS", 8))
@@ -75,8 +75,8 @@ class Settings:
 
     # Reglas de negocio NEXA
     MAX_OFFERS_EVALUATED: int = 10
-    LOW_PROBABILITY_THRESHOLD: float = 0.50
-    NOISE_PROBABILITY_THRESHOLD: float = 0.20
+    LOW_PROBABILITY_THRESHOLD: float = 0.20   # alerta visual si P < 20% (antes: 0.50)
+    NOISE_PROBABILITY_THRESHOLD: float = 0.03  # filtrar solo ruido extremo P < 3% (antes: 0.20)
     ANTIGUO_MESES_THRESHOLD: int = 6
 
     # Twilio (llamadas telefonicas reales via PSTN + Media Streams)

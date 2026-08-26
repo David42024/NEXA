@@ -104,3 +104,26 @@ def me(current_user: models.User = Depends(get_current_user), db: Session = Depe
         id=current_user.id, email=current_user.email, name=current_user.name,
         role=current_user.role, permissions=perms,
     )
+
+
+@router.get("/demo-users")
+def get_demo_users(db: Session = Depends(get_db)):
+    """Obtiene usuarios de demostración desde la base de datos para el login."""
+    users = db.query(models.User).filter(
+        models.User.role.in_(["admin", "supervisor", "asesor"])
+    ).all()
+    
+    demo_users = []
+    for user in users:
+        # Contraseñas según las creadas en create_test_users.py
+        password = "admin123" if user.role == "admin" else \
+                   "supervisor123" if user.role == "supervisor" else \
+                   "asesor123"  # para asesores
+        
+        demo_users.append({
+            "role": user.role.capitalize(),
+            "email": user.email,
+            "password": password
+        })
+    
+    return {"users": demo_users}
