@@ -11,6 +11,9 @@ const DEMO_USERS = [
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Contraseña de cada rol para los accesos demo
+const ROLE_PASSWORDS = { admin: 'admin123', supervisor: 'supervisor123', asesor: 'asesor123' }
+
 // --- Iconos minimalistas (inline) ---
 function MailIcon(props) {
   return (
@@ -126,26 +129,27 @@ export default function Login() {
         const response = await fetch(`${API_BASE_URL}/api/auth/demo-users`)
         if (response.ok) {
           const data = await response.json()
-          if (data.users && data.users.length > 0) {
-            // Mapear contraseñas correctas según el rol
+          if (data.users && data.users.length >= 3) {
             const ROLE_DESCRIPTIONS = {
               asesor: 'Mi cartera y clientes',
               supervisor: 'Desempeño del equipo',
               admin: 'Gestión y configuración',
             }
-            const usersWithPasswords = data.users.map(user => ({
-              ...user,
-              description: ROLE_DESCRIPTIONS[user.role.toLowerCase()] || '',
-              password: user.role.toLowerCase() === 'admin' ? 'admin123' :
-                         user.role.toLowerCase() === 'supervisor' ? 'supervisor123' :
-                         user.role.toLowerCase() === 'asesor' ? 'asesor123' : 'demo123'
-            }))
-            setDemoUsers(usersWithPasswords)
+            const usersWithPasswords = data.users
+              .filter(u => ['asesor', 'supervisor', 'admin'].includes(u.role?.toLowerCase()))
+              .slice(0, 3)
+              .map(user => ({
+                ...user,
+                description: ROLE_DESCRIPTIONS[user.role.toLowerCase()] || '',
+                password: ROLE_PASSWORDS[user.role.toLowerCase()] || 'demo123'
+              }))
+            if (usersWithPasswords.length >= 3) {
+              setDemoUsers(usersWithPasswords)
+            }
           }
         }
       } catch (error) {
         console.error('Error loading demo users:', error)
-        // Mantener usuarios hardcoded como fallback
       } finally {
         setLoadingUsers(false)
       }

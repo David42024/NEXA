@@ -108,18 +108,38 @@ def me(current_user: models.User = Depends(get_current_user), db: Session = Depe
 
 @router.get("/demo-users")
 def get_demo_users(db: Session = Depends(get_db)):
-    """Obtiene usuarios de demostración desde la base de datos para el login."""
-    # Solo el primer asesor para demostración
-    user = db.query(models.User).filter(
-        models.User.role == "asesor"
-    ).order_by(models.User.id).first()
-    
+    """Obtiene usuarios de demostración desde la base de datos para el login.
+
+    Garantiza siempre 3 usuarios (uno por rol) usando datos hardcoded como
+    fallback si el BD no tiene alguno de los roles.
+    """
+    DEMO_FALLBACK = [
+        {"role": "Asesor", "email": "asesor@nexa.demo", "password": "asesor123"},
+        {"role": "Supervisor", "email": "supervisor@nexa.demo", "password": "supervisor123"},
+        {"role": "Admin", "email": "admin@nexa.demo", "password": "admin123"},
+    ]
+
+    db_users = db.query(models.User).filter(
+        models.User.role.in_(["admin", "supervisor", "asesor"])
+    ).all()
+
+    by_role = {}
+    for user in db_users:
+        role_lower = user.role.lower()
+        if role_lower not in by_role:
+            by_role[role_lower] = user
+
     demo_users = []
-    if user:
-        demo_users.append({
-            "role": user.role.capitalize(),
-            "email": user.email,
-            "password": "asesor123"
-        })
-    
+    for fb in DEMO_FALLBACK:
+        role_lower = fb["role"].lower()
+        user = by_role.get(role_lower)
+        if user:
+            demo_users.append({
+                "role": user.role.capitalize(),
+                "email": user.email,
+                "password": fb["password"],
+            })
+        else:
+            demo_users.append(fb)
+
     return {"users": demo_users}
