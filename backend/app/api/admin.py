@@ -517,3 +517,89 @@ def _count_segmentos_portable(db, counts):
                     counts[key] += 1
         last_id = rows[-1][0]
     return counts
+
+
+# ---------------------------------------------------------------------------
+# Mapa de calor: clientes sin Movistar Total por nivel geografico
+# ---------------------------------------------------------------------------
+
+@router.get("/heatmap")
+def get_heatmap(
+    nivel: str = Query("departamento", pattern="^(departamento|provincia|distrito)$"),
+    id_padre: int | None = Query(None),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("view_funnel")),
+):
+    """Agrega clientes por nivel geografico con conteo de sin Movistar Total.
+
+    nivel: 'departamento', 'provincia' o 'distrito'
+    id_padre: ID del padre (requerido para provincia y distrito)
+    """
+    # Claves del profile JSON donde se almacena el departamento
+    DEPT_KEYS = ("ubicacion_departamento", "direccion", "distrito")
+    PROV_KEYS = ("ubicacion_provincia", "provincia")
+    DIST_KEYS = ("ubicacion_distrito", "distrito_real")
+
+    if nivel == "departamento":
+        key_candidates = DEPT_KEYS
+    elif nivel == "provincia":
+        key_candidates = PROV_KEYS
+    else:
+        key_candidates = DIST_KEYS
+
+    # Agregacion portable: barrido por lotes
+    counts = {}
+    last_id = None
+    while True:
+        q = db.query(models.Client.id, models.Client.profile).order_by(models.Client.id)
+        if last_id:
+            q = q.filter(models.Client.id > last_id)
+        rows = q.limit(2000).all()
+        if not rows:
+            break
+        for _, profile in rows:
+            p = profile or {}
+            geo_name = None
+            for k in key_candidates:
+                val = p.get(k)
+                if val:
+                    geo_name = str(val).strip()
+                    break
+            if not geo_name:
+                continue
+
+            elig = p.get("elegibilidad", {})
+            has_mt = bool(elig.get("movistar_total"))
+
+            entry = counts.setdefault(geo_name, {"total": 0, "sin_mt": 0})
+            entry["total"] += 1
+            if not has_mt:
+                entry["sin_mt"] += 1
+        last_id = rows[-1][0]
+
+    # Mapear nombre geografico -> id numerico usando la jerarquia
+    from app.data.peru_geography import (
+        DEPARTAMENTOS, PROVINCIAS, DISTRITOS,
+        normalizar as norm_geo,
+    )
+
+    items = []
+    if nivel == "departamento":
+        norm_map = {norm_geo(d["nombre"]): d["id"] for d in DEPARTAMENTOS}
+    elif nivel == "provincia":
+        norm_map = {norm_geo(p["nombre"]): p["id"] for p in PROVINCIAS}
+    else:
+        norm_map = {norm_geo(d["nombre"]): d["id"] for d in DISTRITOS}
+
+    for geo_name, data in counts.items():
+        geo_id = norm_map.get(norm_geo(geo_name))
+        if geo_id is None:
+            continue
+        items.append({
+            "id": geo_id,
+            "descripcion": geo_name,
+            "totalClientes": data["total"],
+            "clientesSinMovistarTotal": data["sin_mt"],
+        })
+
+    return {"items": items}

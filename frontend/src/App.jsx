@@ -13,6 +13,7 @@ import ClientProfile from './pages/ClientProfile.jsx'
 import ClientChat from './pages/ClientChat.jsx'
 import Funnel from './pages/Funnel.jsx'
 import Admin from './pages/Admin.jsx'
+import HeatmapPage from './pages/HeatmapPage.jsx'
 
 export default function App() {
   const { user } = useAuth()
@@ -61,6 +62,14 @@ export default function App() {
         element={
           <ProtectedRoute permission="manage_roles">
             <Layout><Admin /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/supervisor/mapa-calor"
+        element={
+          <ProtectedRoute permission="view_funnel">
+            <Layout><HeatmapPage /></Layout>
           </ProtectedRoute>
         }
       />
