@@ -803,3 +803,207 @@ export function useClienteCall({ callId, clientToken, onRemoteStream, botAudioRe
 
   return { phase, error, duration, muted, botText, botSpeaking, thinking, mode, answer, decline, toggleMute, hangup }
 }
+
+/**
+ * Lado del asesor para llamadas telefonicas reales (Twilio).
+ * El asesor marca a un numero real; el audio llega via Twilio Media Streams.
+ * No hay link ni "cliente" en navegador: el cliente es un telefono PSTN.
+ */
+export function useAsesorPhoneCall({ clientId, phoneNumber, onCopilotEvent, onOffering, onRemoteStream }) {
+  const [phase, setPhase] = useState('idle') // idle | dialing | active | ended
+  const [error, setError] = useState(null)
+  const [callInfo, setCallInfo] = useState(null)
+  const [muted, setMuted] = useState(false)
+  const [recordingUrl, setRecordingUrl] = useState(null)
+  const [mode, setMode] = useState('bot')
+  const { duration, startTimer, stopTimer } = useTimer()
+  const { streamRef, stopStream } = useStreamCleanup()
+
+  const wsRef = useRef(null)
+  const pcRef = useRef(null)
+  const recRef = useRef(null)
+  const remoteStreamRef = useRef(null)
+  const phaseRef = useRef('idle')
+  const endedRef = useRef(false)
+  const callIdRef = useRef(null)
+  const serverRecordingRef = useRef(false)
+
+  function setPhaseAll(value) {
+    phaseRef.current = value
+    setPhase(value)
+  }
+
+  const asesorSttGenRef = useRef(0)
+
+  function stopSTT() {
+    asesorSttGenRef.current += 1
+    if (recRef.current) {
+      recRef.current.onresult = null
+      recRef.current.onend = null
+      try { recRef.current.abort() } catch { /* ya detenida */ }
+      recRef.current = null
+    }
+  }
+
+  function startSTT() {
+    if (recRef.current) {
+      try { recRef.current.onresult = null; recRef.current.onend = null; recRef.current.abort() } catch { /* ya detenida */ }
+      recRef.current = null
+    }
+    asesorSttGenRef.current += 1
+    const gen = asesorSttGenRef.current
+    recRef.current = createSTT({
+      ws: wsRef.current,
+      speaker: 'asesor',
+      isActive: () => phaseRef.current === 'active',
+      isPaused: () => false,
+      isCurrent: () => gen === asesorSttGenRef.current,
+      onAutoRestart: () => startSTT(),
+    })
+  }
+
+  const cleanup = useCallback(() => {
+    stopTimer()
+    stopStream()
+    stopSTT()
+    pcRef.current?.close()
+    pcRef.current = null
+  }, [stopTimer, stopStream])
+
+  useEffect(() => () => { wsRef.current?.close(); cleanup() }, [cleanup])
+
+  async function start() {
+    if (phase !== 'idle') return
+    if (!phoneNumber || !phoneNumber.trim()) {
+      setError('Ingresa un numero de telefono.')
+      return
+    }
+    setPhaseAll('dialing')
+    setError(null)
+    stopTimer()
+    endedRef.current = false
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      stream.getAudioTracks().forEach((t) => { t.enabled = true })
+    } catch {
+      setError('No se pudo acceder al microfono.')
+      setPhaseAll('idle')
+      return
+    }
+
+    try {
+      const { data } = await api.post('/api/calls/start', {
+        client_id: clientId,
+        phone_number: phoneNumber.trim(),
+      })
+      callIdRef.current = data.call_id
+      setCallInfo(data)
+
+      const token = localStorage.getItem('nexa_token')
+      const ws = new WebSocket(wsUrl(`/api/calls/ws/${data.call_id}?role=asesor&token=${token}`))
+      wsRef.current = ws
+
+      ws.onopen = async () => {
+        try {
+          const pc = await createPeer(streamRef.current, (candidate) =>
+            ws.send(JSON.stringify({ type: 'candidate', candidate }))
+          )
+          pcRef.current = pc
+          pc.ontrack = (e) => {
+            if (e.streams?.[0]) remoteStreamRef.current = e.streams[0]
+            onRemoteStream?.(e.streams[0])
+          }
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          ws.send(JSON.stringify({ type: 'offer', sdp: offer.sdp }))
+        } catch {
+          setError('No se pudo preparar el audio.')
+          setPhaseAll('idle')
+        }
+      }
+
+      ws.onmessage = async (ev) => {
+        const msg = JSON.parse(ev.data)
+        if (msg.offering) onOffering?.(msg.offering)
+        if (msg.type === 'stt') {
+          onCopilotEvent?.({ ...msg, type: 'stt' })
+        } else if (msg.type === 'status' && msg.state === 'active') {
+          setPhaseAll('active')
+          startTimer()
+          startSTT()
+        } else if (msg.type === 'answer' && msg.sdp) {
+          await pcRef.current?.setRemoteDescription({ type: 'answer', sdp: msg.sdp })
+          setPhaseAll('active')
+          startTimer()
+          startSTT()
+        } else if (msg.type === 'candidate') {
+          try { await pcRef.current?.addIceCandidate(msg.candidate) } catch { /* tardio */ }
+        } else if (msg.type === 'copilot') {
+          onCopilotEvent?.(msg)
+        } else if (msg.type === 'mood') {
+          onCopilotEvent?.({ ...msg, type: 'mood' })
+        } else if (msg.type === 'mode') {
+          if (msg.mode === 'bot' || msg.mode === 'asesor') setMode(msg.mode)
+        } else if (msg.type === 'ended') {
+          endedRef.current = true
+          stopTimer()
+          cleanup()
+          setPhaseAll('ended')
+          ws.close()
+        }
+      }
+
+      ws.onerror = () => setError('No se pudo conectar la llamada.')
+      ws.onclose = () => {
+        if (!endedRef.current) {
+          stopTimer()
+          cleanup()
+          setPhaseAll('ended')
+        }
+      }
+    } catch (e) {
+      stopStream()
+      setError(e.response?.data?.detail || 'No se pudo iniciar la llamada.')
+      setPhaseAll('idle')
+    }
+  }
+
+  function toggleMute() {
+    streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = muted })
+    setMuted(!muted)
+  }
+
+  function hangup(reason = 'ended') {
+    if (typeof reason !== 'string') reason = 'ended'
+    wsRef.current?.send(JSON.stringify({ type: 'end', reason }))
+    wsRef.current?.close()
+    endedRef.current = true
+    stopTimer()
+    cleanup()
+    setPhaseAll('ended')
+  }
+
+  function reset() {
+    setPhaseAll('idle')
+    setError(null)
+    setCallInfo(null)
+    setMuted(false)
+    callIdRef.current = null
+    serverRecordingRef.current = false
+    setRecordingUrl(null)
+    stopTimer()
+  }
+
+  function switchMode(next) {
+    if (next === mode || (next !== 'bot' && next !== 'asesor')) return
+    setMode(next)
+    wsRef.current?.send(JSON.stringify({ type: 'mode', mode: next }))
+    const enable = next === 'asesor'
+    streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = enable })
+    setMuted(!enable)
+  }
+
+  const sttSupported = Boolean(window.SpeechRecognition || window.webkitSpeechRecognition)
+  return { phase, error, callInfo, duration, muted, recordingUrl, sttSupported, mode, switchMode, start, toggleMute, hangup, reset }
+}

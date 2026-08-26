@@ -10,3 +10,5 @@ python-dotenv==1.0.1
 psycopg2-binary==2.9.9
 faker==25.8.0
 alembic==1.13.2
+twilio==9.4.5
+websockets==12.0

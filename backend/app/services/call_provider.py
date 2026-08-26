@@ -220,6 +220,9 @@ class CallSession:
         self.mood_score = 0.0  # animo del cliente en vivo (-1 enojado .. +1 entusiasmado)
         self.recording = None  # bytes del audio completo subido por el cliente
         self.acceptance_sent = False  # aviso de traspaso al asesor ya emitido
+        # Modo de llamada: "webrtc" (P2P via link) o "twilio" (telefono real)
+        self.call_mode = "webrtc"
+        self.phone_number = None  # numero real del cliente (solo modo twilio)
 
 
 class P2PWebRTCProvider:

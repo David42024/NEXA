@@ -1,21 +1,19 @@
-"""Llamada WebRTC (MVP real).
+"""Llamada WebRTC (MVP real) + Twilio (llamadas telefonicas reales).
 
-Flujo:
+Flujo WebRTC (original):
   1. `POST /api/calls/start` {client_id} -> crea el Offering E2E en etapa
      `planned` (canal Llamada), construye el contexto del copilot y devuelve
      `{call_id, cliente_token, client_name, client_id, offering_id}`. El asesor
      comparte el enlace con el cliente.
   2. `WS /api/calls/ws/{call_id}?role=asesor|cliente&token=...` es el canal de
-     señalización WebRTC peer-to-peer a traves del backend:
-       - asesor:  JWT (permiso view_recommendation).
-       - cliente: token aleatorio devuelto en /start.
-     Eventos: offer / answer / candidate (WebRTC), stt (transcripcion del
-     cliente via Web Speech API), copilot (objecion + sugerencia del Nexabot),
-     status / ended.
+     señalización WebRTC peer-to-peer a traves del backend.
 
-En produccion el audio no pasa por el backend (P2P); solo la señalización y el
-copilot. Si se quiere telefonia real, se implementa el mismo CallProvider con
-SIP/Asterisk y el frontend no cambia.
+Flujo Twilio (llamada real):
+  1. `POST /api/calls/start` {client_id, phone_number} -> crea el Offering E2E
+     y marca al numero real via Twilio.
+  2. Cuando el cliente contesta, Twilio conecta un Media Stream al backend.
+  3. El asesor escucha via WebRTC conectado al backend, el audio del cliente
+     llega via Twilio Media Streams y el copilot funciona igual.
 """
 import asyncio
 
@@ -36,6 +34,7 @@ router = APIRouter(prefix="/api/calls", tags=["calls"])
 
 class CallStartRequest(BaseModel):
     client_id: str
+    phone_number: str | None = None
 
 
 def _latest_top_offer(db: Session, client_id: str):
@@ -67,7 +66,11 @@ def start_call(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_permission("view_recommendation")),
 ):
-    """Prepara la llamada: offering E2E (planned) + contexto del copilot + credenciales."""
+    """Prepara la llamada: offering E2E (planned) + contexto del copilot + credenciales.
+
+    Si se proporciona `phone_number`, se usa Twilio para llamar al telefono real
+    del cliente. Si no, se usa WebRTC P2P con enlace (flujo original).
+    """
     client = db.query(models.Client).filter(models.Client.id == payload.client_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="No se encontró cliente con ese ID")
@@ -89,12 +92,39 @@ def start_call(
     db.refresh(offering)
 
     sess = provider.create_session(client.id, client.name, ctx, offering.id, current_user.id)
+
+    is_twilio = bool(payload.phone_number and payload.phone_number.strip())
+    if is_twilio:
+        from app.services.twilio_provider import twilio_provider
+        sess.call_mode = "twilio"
+        sess.phone_number = payload.phone_number.strip()
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                twilio_provider.dial(
+                    sess.id, sess.phone_number, ctx, offering.id, current_user.id
+                )
+            )
+        except RuntimeError:
+            pass  # Sin event loop (tests sync): el dial se omite
+        return {
+            "call_id": sess.id,
+            "cliente_token": None,
+            "client_name": client.name,
+            "client_id": client.id,
+            "offering_id": offering.id,
+            "call_mode": "twilio",
+            "phone_number": sess.phone_number,
+        }
+
     return {
         "call_id": sess.id,
         "cliente_token": sess.cliente_token,
         "client_name": client.name,
         "client_id": client.id,
         "offering_id": offering.id,
+        "call_mode": "webrtc",
+        "phone_number": None,
     }
 
 

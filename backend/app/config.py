@@ -34,7 +34,10 @@ class Settings:
         "GROQ_API_URL",
         os.getenv("GROK_API_URL", "https://api.groq.com/openai/v1/chat/completions"),
     )
-    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    # Modelos vigentes en 2026: llama-3.3-70b-versatile y gemini-*-flash <= 2.5
+    # fueron retirados por los proveedores (404 model_not_found / no longer
+    # available); gpt-oss-120b (Groq) y gemini-3.6-flash son los reemplazos.
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
     # Transcripcion de voz (Whisper de Groq): se usa para oir al cliente en la
     # llamada desde cualquier navegador (no depende de la Web Speech API de Chrome).
     GROQ_STT_URL: str = os.getenv(
@@ -46,7 +49,7 @@ class Settings:
     FALLBACK_PROVIDER: str = os.getenv("FALLBACK_PROVIDER", "gemini")
     GEMINI_API_URL: str = os.getenv(
         "GEMINI_API_URL",
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
     )
 
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "demo")
@@ -75,6 +78,17 @@ class Settings:
     LOW_PROBABILITY_THRESHOLD: float = 0.50
     NOISE_PROBABILITY_THRESHOLD: float = 0.20
     ANTIGUO_MESES_THRESHOLD: int = 6
+
+    # Twilio (llamadas telefonicas reales via PSTN + Media Streams)
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")
+    TWILIO_VOICE_URL: str = os.getenv("TWILIO_VOICE_URL", "")
+    TWILIO_STATUS_URL: str = os.getenv("TWILIO_STATUS_URL", "")
+
+    @property
+    def twilio_enabled(self) -> bool:
+        return bool(os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN"))
 
 
 settings = Settings()
