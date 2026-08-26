@@ -1,106 +1,153 @@
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import useHeatmapData from './useHeatmapData'
 import GeoLayer from './GeoLayer'
 import HeatmapBreadcrumb from './HeatmapBreadcrumb'
 import HeatmapLegend from './HeatmapLegend'
 import HeatmapTooltip from './HeatmapTooltip'
 import DetailZoomPanel from './DetailZoomPanel'
-import { DEPTO_PROVINCIAS, PROV_DISTRITOS } from '../../data/peru-geography'
+import normalizeNombre from './normalizeNombre'
 
-/**
- * Mapa de calor coroplexico de Peru: Clientes sin Movistar Total.
- *
- * Navegacion jerarquica: Pais -> Departamento -> Provincia -> Distrito.
- *
- * @param {object} props
- * @param {'porcentaje'|'absoluto'} props.metricMode
- */
+const GEOJSON_URLS = {
+  departamento: '/geo/peru_departamental_simple.geojson',
+  provincia: '/geo/peru_provincial_simple.geojson',
+  distrito: '/geo/peru_distrital_simple.geojson',
+}
+
+const GEO_NAME_KEY = {
+  departamento: 'NOMBDEP',
+  provincia: 'NOMBPROV',
+  distrito: 'NOMBDIST',
+}
+
+const PARENT_NAME_KEY = {
+  departamento: null,
+  provincia: 'FIRST_NOMB',
+  distrito: 'NOMBDEP',
+}
+
+function buildBreadcrumb(nivel, parentContext) {
+  const crumbs = [{ id: null, label: 'Peru', nivel: 'departamento', parentContext: null }]
+
+  if ((nivel === 'provincia' || nivel === 'distrito') && parentContext?.deptoName) {
+    crumbs.push({
+      id: parentContext.deptoName,
+      label: parentContext.deptoName,
+      nivel: 'provincia',
+      parentContext: { deptoName: parentContext.deptoName },
+    })
+  }
+
+  if (nivel === 'distrito' && parentContext?.provName) {
+    crumbs.push({
+      id: parentContext.provName,
+      label: parentContext.provName,
+      nivel: 'distrito',
+      parentContext,
+    })
+  }
+
+  return crumbs
+}
+
 export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
   const [nivel, setNivel] = useState('departamento')
-  const [parentId, setParentId] = useState(null)
+  const [parentContext, setParentContext] = useState(null)
   const [selectedItem, setSelectedItem] = useState(null)
   const [hoveredItem, setHoveredItem] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const [geojsonCache, setGeojsonCache] = useState({})
+  const [geoLoading, setGeoLoading] = useState(false)
 
-  const { items, loading, error, min, max, parentName } = useHeatmapData({
-    nivel,
-    parentId,
-    metricMode,
-  })
+  const currentGeojson = geojsonCache[nivel] || null
 
-  // Breadcrumb path
-  const path = useMemo(() => {
-    const p = [{ id: null, label: 'Peru' }]
-    if (nivel === 'provincia' || nivel === 'distrito') {
-      const depto = items.length > 0 ? null : null
-      // Find depto from parentId chain
-      const deptoItem = parentId != null && nivel === 'provincia'
-        ? { id: null, label: parentName }
-        : null
-      if (nivel === 'provincia') {
-        p.push({ id: null, label: parentName })
-      }
+  useEffect(() => {
+    if (!currentGeojson && !geoLoading) {
+      setGeoLoading(true)
+      fetch(GEOJSON_URLS[nivel])
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          return res.json()
+        })
+        .then(data => {
+          setGeojsonCache(prev => ({ ...prev, [nivel]: data }))
+          setGeoLoading(false)
+        })
+        .catch(err => {
+          console.error('GeoJSON load error:', err)
+          setGeoLoading(false)
+        })
     }
-    if (nivel === 'distrito') {
-      // Need depto name too
-      const deptoId = Math.floor(parentId / 100)
-      const deptoData = DEPTO_PROVINCIAS[deptoId]
-      // We don't have the depto name directly, but parentName is the province name
-      p.push({ id: null, label: '...' })
-      p.push({ id: parentId, label: parentName })
-    }
-    if (nivel === 'departamento') {
-      // At country level, no extra entries
-    }
-    return p
-  }, [nivel, parentId, parentName, items])
+  }, [nivel, currentGeojson, geoLoading])
 
-  // Simplified breadcrumb
-  const breadcrumb = useMemo(() => {
-    const result = [{ id: null, label: 'Peru', nivel: 'departamento', parentId: null }]
-    if (nivel === 'provincia') {
-      result.push({ id: parentId, label: parentName, nivel: 'departamento', parentId: null })
+  const { joinByName, loading, error } = useHeatmapData({ nivel, metricMode })
+
+  const nameKey = GEO_NAME_KEY[nivel]
+  const parentKey = PARENT_NAME_KEY[nivel]
+
+  const items = useMemo(() => {
+    if (!currentGeojson?.features) return []
+    let features = currentGeojson.features
+
+    if (nivel === 'provincia' && parentContext?.deptoName) {
+      features = features.filter(f =>
+        normalizeNombre(f.properties?.FIRST_NOMB) === parentContext.deptoName
+      )
+    } else if (nivel === 'distrito' && parentContext?.provName) {
+      features = features.filter(f =>
+        normalizeNombre(f.properties?.NOMBPROV) === parentContext.provName
+      )
     }
-    if (nivel === 'distrito') {
-      // We need the department name. parentId here is province id.
-      // Province id format: XX0Y where XX is dept id
-      const deptoId = Math.floor(parentId / 100)
-      const deptoName = items.length > 0 ? parentName : ''
-      result.push({ id: deptoId, label: `Depto ${deptoId}`, nivel: 'provincia', parentId: deptoId })
-      result.push({ id: parentId, label: parentName, nivel: 'distrito', parentId: parentId })
-    }
-    return result
-  }, [nivel, parentId, parentName, items])
+
+    return joinByName(features, nameKey, parentKey)
+  }, [currentGeojson, nivel, parentContext, joinByName, nameKey, parentKey])
+
+  const min = useMemo(() => {
+    if (items.length === 0) return 0
+    const values = items.map(i => i.value).filter(v => v != null)
+    return values.length > 0 ? Math.min(...values) : 0
+  }, [items])
+
+  const max = useMemo(() => {
+    if (items.length === 0) return 1
+    const values = items.map(i => i.value).filter(v => v != null)
+    return values.length > 0 ? Math.max(...values) : 1
+  }, [items])
+
+  const parentName = useMemo(() => {
+    if (nivel === 'departamento') return 'Peru'
+    return parentContext?.deptoName || parentContext?.provName || ''
+  }, [nivel, parentContext])
+
+  const breadcrumb = useMemo(
+    () => buildBreadcrumb(nivel, parentContext),
+    [nivel, parentContext]
+  )
 
   const handleSelect = useCallback((item) => {
+    if (!item) return
     setSelectedItem(item)
+
     if (nivel === 'departamento') {
       setNivel('provincia')
-      setParentId(item.id)
+      setParentContext({ deptoName: item.id })
     } else if (nivel === 'provincia') {
       setNivel('distrito')
-      setParentId(item.id)
+      setParentContext(prev => ({ ...prev, provName: item.id }))
     }
   }, [nivel])
 
-  const handleBreadcrumbNavigate = useCallback((item) => {
-    if (item.id === null) {
-      setNivel('departamento')
-      setParentId(null)
-    } else if (item.nivel === 'departamento') {
-      setNivel('provincia')
-      setParentId(item.id)
-    }
+  const handleBreadcrumbNavigate = useCallback((crumb) => {
+    setNivel(crumb.nivel)
+    setParentContext(crumb.parentContext)
     setSelectedItem(null)
   }, [])
 
-  const handleHover = useCallback((item, e) => {
+  const handleHover = useCallback((item) => {
     setHoveredItem(item)
-    if (e) setMousePos({ x: e.clientX, y: e.clientY })
   }, [])
 
-  const handleHoverItem = useCallback((item) => {
-    setHoveredItem(item)
+  const handleMousePos = useCallback((e) => {
+    setMousePos({ x: e.clientX, y: e.clientY })
   }, [])
 
   const nivelLabel = nivel === 'departamento'
@@ -109,9 +156,10 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
       ? `Provincias de ${parentName}`
       : `Distritos de ${parentName}`
 
+  const isLoading = loading || geoLoading
+
   return (
-    <div className="space-y-5">
-      {/* Header */}
+    <div className="space-y-5" onMouseMove={handleMousePos}>
       <div>
         <p className="label-eyebrow">Mapa de calor</p>
         <h2 className="mt-1 font-display text-xl font-bold text-navy-900 dark:text-white">
@@ -122,15 +170,12 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
         </p>
       </div>
 
-      {/* Breadcrumb */}
       <HeatmapBreadcrumb path={breadcrumb} onNavigate={handleBreadcrumbNavigate} />
 
-      {/* Main content: map + detail panel */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        {/* Map */}
         <div className="lg:col-span-2">
           <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-navy-900/60 sm:p-6">
-            {loading ? (
+            {isLoading ? (
               <div className="flex h-64 items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-cyan-500 border-t-transparent" />
               </div>
@@ -140,25 +185,25 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
               </div>
             ) : (
               <GeoLayer
+                geojson={currentGeojson}
                 items={items}
+                nivel={nivel}
                 min={min}
                 max={max}
                 metricMode={metricMode}
                 onSelect={handleSelect}
                 hoveredId={hoveredItem?.id}
-                onHover={handleHoverItem}
+                onHover={handleHover}
                 onHoverEnd={() => setHoveredItem(null)}
               />
             )}
 
-            {/* Legend */}
             <div className="mt-4 flex justify-center">
               <HeatmapLegend metricMode={metricMode} />
             </div>
           </div>
         </div>
 
-        {/* Detail panel */}
         <div className="space-y-4">
           <DetailZoomPanel
             parentItem={selectedItem}
@@ -167,8 +212,7 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
             onSelectChild={handleSelect}
           />
 
-          {/* Summary card */}
-          {!loading && items.length > 0 && (
+          {!isLoading && items.length > 0 && (
             <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-navy-900/60">
               <h3 className="text-sm font-bold text-navy-900 dark:text-white">
                 Resumen del nivel
@@ -194,7 +238,6 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
             </div>
           )}
 
-          {/* Demo notice */}
           <div className="flex items-start gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-700 dark:border-amber-400/20 dark:bg-amber-400/5 dark:text-amber-300">
             <span className="mt-0.5 shrink-0 text-amber-500">i</span>
             <p>Datos ilustrativos generados con el motor de demostracion de NEXA.</p>
@@ -202,7 +245,6 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
         </div>
       </div>
 
-      {/* Tooltip */}
       <HeatmapTooltip item={hoveredItem} position={mousePos} metricMode={metricMode} />
     </div>
   )

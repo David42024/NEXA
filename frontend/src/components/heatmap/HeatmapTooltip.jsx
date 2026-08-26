@@ -12,7 +12,7 @@ export default function HeatmapTooltip({ item, position, metricMode }) {
       style={{ left: position.x + 12, top: position.y - 10 }}
     >
       <p className="text-sm font-bold text-navy-900 dark:text-white">
-        {item.nombre}
+        {item.nombre || item.id}
       </p>
       <div className="mt-1.5 space-y-0.5">
         <p className="text-xs text-slate-500 dark:text-slate-400">

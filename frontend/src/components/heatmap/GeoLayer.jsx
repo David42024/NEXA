@@ -1,18 +1,43 @@
 import React, { useMemo, useCallback } from 'react'
-import { colorScale, isDark } from './colorScale'
+import {
+  ComposableMap,
+  Geographies,
+  Geography,
+} from 'react-simple-maps'
+import { colorScale, NO_DATA_COLOR, isDark } from './colorScale'
+import normalizeNombre from './normalizeNombre'
 
-const CELL = 56
-const GAP = 4
-const TOTAL = CELL + GAP
+const PROJECTION_CONFIG = {
+  departamento: {
+    scale: 700,
+    center: [-75, -10],
+  },
+  provincia: {
+    scale: 3200,
+    center: [-75, -10],
+  },
+  distrito: {
+    scale: 16000,
+    center: [-75, -10],
+  },
+}
 
-/**
- * Renderiza el mapa de calor como un tile-grid de celdas SVG.
- *
- * Cada celda representa una unidad geografica (departamento, provincia o distrito)
- * posicionada en una grilla segun sus coordenadas (row, col).
- */
+const GEO_PROPS_KEY = {
+  departamento: 'NOMBDEP',
+  provincia: 'NOMBPROV',
+  distrito: 'NOMBDIST',
+}
+
+const PARENT_PROPS_KEY = {
+  departamento: null,
+  provincia: 'FIRST_NOMB',
+  distrito: 'NOMBDEP',
+}
+
 export default function GeoLayer({
+  geojson,
   items,
+  nivel = 'departamento',
   min,
   max,
   metricMode = 'porcentaje',
@@ -21,104 +46,88 @@ export default function GeoLayer({
   onHover,
   onHoverEnd,
 }) {
+  const dataMap = useMemo(() => {
+    const m = {}
+    items.forEach(item => { m[item.id] = item })
+    return m
+  }, [items])
+
   const intensity = useCallback((value) => {
+    if (value == null) return null
     if (max === min) return 0.5
     return (value - min) / (max - min)
   }, [min, max])
 
-  // Calcular dimensiones del SVG
-  const { rows, cols, viewBox } = useMemo(() => {
-    if (items.length === 0) return { rows: 1, cols: 1, viewBox: '0 0 100 100' }
-    const maxRow = Math.max(...items.map(i => i.row ?? 0))
-    const maxCol = Math.max(...items.map(i => i.col ?? 0))
-    const r = maxRow + 1
-    const c = maxCol + 1
-    return {
-      rows: r,
-      cols: c,
-      viewBox: `0 0 ${c * TOTAL + GAP} ${r * TOTAL + GAP}`,
-    }
-  }, [items])
+  const projConfig = PROJECTION_CONFIG[nivel] || PROJECTION_CONFIG.departamento
+  const geoNameKey = GEO_PROPS_KEY[nivel] || 'NOMBDEP'
+
+  const handleMouseEnter = useCallback((geo, item) => {
+    if (item) onHover?.(item)
+  }, [onHover])
+
+  const handleMouseLeave = useCallback(() => {
+    onHoverEnd?.()
+  }, [onHoverEnd])
+
+  const handleClick = useCallback((item) => {
+    if (item) onSelect?.(item)
+  }, [onSelect])
+
+  if (!geojson) return null
 
   return (
-    <svg
-      viewBox={viewBox}
-      className="w-full h-auto"
-      role="img"
-      aria-label="Mapa de calor geografico de clientes sin Movistar Total"
+    <ComposableMap
+      projection="mercator"
+      projectionConfig={{
+        scale: projConfig.scale,
+        center: projConfig.center,
+      }}
+      style={{ width: '100%', height: 'auto' }}
     >
-      {items.map(item => {
-        const row = item.row ?? 0
-        const col = item.col ?? 0
-        const x = col * TOTAL + GAP
-        const y = row * TOTAL + GAP
-        const t = intensity(item.value)
-        const fill = colorScale(t)
-        const dark = isDark(fill)
-        const hovered = hoveredId === item.id
-        const label = item.abbr || item.nombre?.slice(0, 4).toUpperCase() || item.id
+      <Geographies geography={geojson}>
+        {({ geographies }) =>
+          geographies.map(geo => {
+            const props = geo.properties || {}
+            const nombre = props[geoNameKey]
+            const normName = normalizeNombre(nombre)
+            const item = dataMap[normName]
+            const value = item?.value
+            const intensityVal = value != null ? intensity(value) : null
+            const fill = value != null ? colorScale(intensityVal) : NO_DATA_COLOR
+            const dark = isDark(fill)
+            const isHovered = hoveredId === normName
 
-        return (
-          <g
-            key={item.id}
-            role="img"
-            aria-label={`${item.nombre}: ${item.porcentaje ?? 0}% sin Movistar Total (${item.totalClientes ?? 0} clientes)`}
-            tabIndex={0}
-            className="cursor-pointer outline-none"
-            onClick={() => onSelect?.(item)}
-            onMouseEnter={() => onHover?.(item)}
-            onMouseLeave={() => onHoverEnd?.()}
-            onFocus={() => onHover?.(item)}
-            onBlur={() => onHoverEnd?.()}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onSelect?.(item)
-              }
-            }}
-          >
-            <rect
-              x={x}
-              y={y}
-              width={CELL}
-              height={CELL}
-              rx={6}
-              fill={fill}
-              stroke={hovered ? '#0e7490' : 'rgba(255,255,255,0.3)'}
-              strokeWidth={hovered ? 2.5 : 1}
-              style={{
-                filter: hovered ? 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))' : 'none',
-                transition: 'filter 0.15s ease, stroke 0.15s ease',
-              }}
-            />
-            <text
-              x={x + CELL / 2}
-              y={y + CELL / 2 - 4}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill={dark ? '#fff' : '#1e293b'}
-              fontSize={11}
-              fontWeight={700}
-              fontFamily="system-ui, sans-serif"
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {label}
-            </text>
-            <text
-              x={x + CELL / 2}
-              y={y + CELL / 2 + 10}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill={dark ? 'rgba(255,255,255,0.8)' : 'rgba(30,41,59,0.7)'}
-              fontSize={9}
-              fontFamily="system-ui, sans-serif"
-              style={{ pointerEvents: 'none', userSelect: 'none' }}
-            >
-              {metricMode === 'porcentaje' ? `${item.value}%` : (item.value ?? 0).toLocaleString('es-PE')}
-            </text>
-          </g>
-        )
-      })}
-    </svg>
+            return (
+              <Geography
+                key={geo.rsmKey}
+                geography={geo}
+                onClick={() => handleClick(item)}
+                onMouseEnter={() => handleMouseEnter(geo, item)}
+                onMouseLeave={handleMouseLeave}
+                style={{
+                  default: {
+                    fill,
+                    outline: 'none',
+                    stroke: 'rgba(255,255,255,0.5)',
+                    strokeWidth: 0.5,
+                  },
+                  hover: {
+                    fill,
+                    outline: 'none',
+                    stroke: '#0e7490',
+                    strokeWidth: 2,
+                    filter: 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))',
+                  },
+                  pressed: {
+                    fill,
+                    outline: 'none',
+                  },
+                }}
+              />
+            )
+          })
+        }
+      </Geographies>
+    </ComposableMap>
   )
 }

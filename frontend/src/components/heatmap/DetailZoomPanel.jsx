@@ -12,8 +12,8 @@ export default function DetailZoomPanel({ parentItem, children, metricMode, onSe
   const sinMT = parentItem.clientesSinMovistarTotal ?? 0
   const pct = parentItem.porcentaje ?? 0
 
-  // Top 5 children by value
   const top5 = [...children]
+    .filter(c => c.id !== parentItem.id)
     .sort((a, b) => (b.value ?? 0) - (a.value ?? 0))
     .slice(0, 5)
 

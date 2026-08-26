@@ -6,7 +6,10 @@
  *
  * Valor 0.0 = azul (baja intensidad / sin clientes sin MT)
  * Valor 1.0 = rojo (alta intensidad / muchos clientes sin MT)
+ * null = gris claro (sin datos)
  */
+
+export const NO_DATA_COLOR = '#D1D5DB'
 
 const STOPS = [
   { t: 0.0,  r: 59,  g: 130, b: 246 }, // #3B82F6 (azul)
@@ -20,10 +23,11 @@ function lerp(a, b, t) {
 }
 
 /**
- * @param {number} intensity - Valor normalizado entre 0 y 1
+ * @param {number|null} intensity - Valor normalizado entre 0 y 1, o null si no hay datos
  * @returns {string} Color hex (#RRGGBB)
  */
 export function colorScale(intensity) {
+  if (intensity == null || Number.isNaN(intensity)) return NO_DATA_COLOR
   const t = Math.max(0, Math.min(1, intensity))
 
   let i = 0
