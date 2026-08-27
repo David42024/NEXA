@@ -774,35 +774,56 @@ def backfill_geographic_fields(db) -> int:
     """Backfill idempotente: agrega ubicacion_departamento/provincia/distrito a
     perfiles que solo tienen el campo 'distrito' (nombre del distrito).
 
+    Tambien rellena ubicacion_provincia para perfiles que ya tienen
+    ubicacion_departamento pero les falta la provincia.
+
     Usa el indice reverse-lookup de peru_geography para resolver la jerarquia.
-    Solo toca perfiles que no tengan 'ubicacion_departamento'.
     """
     from app.data.peru_geography import NORM_DIST_TO_DEPTO, NORM_DIST_TO_PROV, NORM_PROV_TO_DEPTO, normalizar
 
     updated = 0
     for c in _clients_batches(db, commit_each=True, solo_sinteticos=False):
         profile = dict(c.profile or {})
-        if profile.get("ubicacion_departamento"):
-            continue
-        dist_name = profile.get("ubicacion_distrito") or profile.get("distrito")
-        if not dist_name:
-            continue
-        nd = normalizar(str(dist_name).strip())
-        parent_depto = NORM_DIST_TO_DEPTO.get(nd)
-        parent_prov = NORM_DIST_TO_PROV.get(nd)
-        if parent_depto:
-            profile["ubicacion_departamento"] = parent_depto["nombre"]
-        if parent_prov:
-            profile["ubicacion_provincia"] = parent_prov["nombre"]
-        # Fallback: if still no department, try province-level reverse-lookup
-        # (some old seeds stored province names in the distrito field)
-        if not profile.get("ubicacion_departamento"):
-            parent_depto_prov = NORM_PROV_TO_DEPTO.get(nd)
-            if parent_depto_prov:
-                profile["ubicacion_departamento"] = parent_depto_prov["nombre"]
-                if not profile.get("ubicacion_provincia"):
-                    profile["ubicacion_provincia"] = str(dist_name).strip()
-        profile.setdefault("ubicacion_distrito", str(dist_name).strip())
-        c.profile = profile
-        updated += 1
+        changed = False
+
+        dept = profile.get("ubicacion_departamento")
+        prov = profile.get("ubicacion_provincia")
+        dist = profile.get("ubicacion_distrito") or profile.get("distrito")
+
+        if not dept and dist:
+            nd = normalizar(str(dist).strip())
+            parent_depto = NORM_DIST_TO_DEPTO.get(nd)
+            parent_prov = NORM_DIST_TO_PROV.get(nd)
+            if parent_depto:
+                profile["ubicacion_departamento"] = parent_depto["nombre"]
+                changed = True
+            if parent_prov:
+                profile["ubicacion_provincia"] = parent_prov["nombre"]
+                changed = True
+            if not profile.get("ubicacion_departamento"):
+                parent_depto_prov = NORM_PROV_TO_DEPTO.get(nd)
+                if parent_depto_prov:
+                    profile["ubicacion_departamento"] = parent_depto_prov["nombre"]
+                    changed = True
+                    if not profile.get("ubicacion_provincia"):
+                        profile["ubicacion_provincia"] = str(dist).strip()
+                        changed = True
+            profile.setdefault("ubicacion_distrito", str(dist).strip())
+            changed = True
+
+        if dept and not prov and dist:
+            nd = normalizar(str(dist).strip())
+            parent_prov = NORM_DIST_TO_PROV.get(nd)
+            if parent_prov:
+                profile["ubicacion_provincia"] = parent_prov["nombre"]
+                changed = True
+            else:
+                prov_dept = NORM_PROV_TO_DEPTO.get(nd)
+                if prov_dept and normalizar(prov_dept["nombre"]) == normalizar(dept):
+                    profile["ubicacion_provincia"] = str(dist).strip()
+                    changed = True
+
+        if changed:
+            c.profile = profile
+            updated += 1
     return updated

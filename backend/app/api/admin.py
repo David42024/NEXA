@@ -538,24 +538,15 @@ def get_heatmap(
     En Postgres (produccion Neon) se usa un unico query JSON sobre la columna
     profile para evitar escanear 100k perfiles en Python (timeout por SSL).
     En SQLite (tests) se usa el barrido portable por lotes.
+
+    BD real: solo tiene ubicacion_departamento + distrito.
+    Para nivel provincia: agrupa por distrito en SQL, resuelve distrito->provincia en Python.
     """
     from app.data.peru_geography import (
         DEPARTAMENTOS, PROVINCIAS, DISTRITOS,
+        NORM_DIST_TO_PROV, NORM_DIST_TO_DEPTO,
         normalizar as norm_geo,
     )
-
-    if nivel == "departamento":
-        GEO_KEY = "ubicacion_departamento"
-        FALLBACK_KEY = "distrito"
-        PARENT_KEY = None
-    elif nivel == "provincia":
-        GEO_KEY = "ubicacion_provincia"
-        FALLBACK_KEY = None
-        PARENT_KEY = "ubicacion_departamento"
-    else:
-        GEO_KEY = "ubicacion_distrito"
-        FALLBACK_KEY = "distrito"
-        PARENT_KEY = "ubicacion_provincia"
 
     norm_map = {}
     if nivel == "departamento":
@@ -565,51 +556,90 @@ def get_heatmap(
     else:
         norm_map = {norm_geo(d["nombre"]): (d["id"], d["nombre"]) for d in DISTRITOS}
 
-    norm_parent = norm_geo(parent_name) if parent_name else None
-    counts = {}
+    counts: dict[str, dict] = {}
 
     if db.get_bind().dialect.name == "postgresql":
         try:
             from sqlalchemy import text
-            col = f"profile ->> '{GEO_KEY}'"
-            fallback_col = f"profile ->> '{FALLBACK_KEY}'" if FALLBACK_KEY else col
-            agg_col = f"COALESCE({col}, {fallback_col})" if FALLBACK_KEY else col
 
-            q = text(f"""
-                SELECT
-                    {agg_col} AS geo_name,
-                    count(*) AS total,
-                    count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
-                FROM clients
-                WHERE {agg_col} IS NOT NULL AND {agg_col} != ''
-                GROUP BY {agg_col}
-            """)
+            if nivel == "departamento":
+                q = text("""
+                    SELECT
+                        COALESCE(profile ->> 'ubicacion_departamento', profile ->> 'distrito') AS geo_name,
+                        count(*) AS total,
+                        count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
+                    FROM clients
+                    WHERE COALESCE(profile ->> 'ubicacion_departamento', profile ->> 'distrito') IS NOT NULL
+                      AND COALESCE(profile ->> 'ubicacion_departamento', profile ->> 'distrito') != ''
+                    GROUP BY geo_name
+                """)
+                for row in db.execute(q).fetchall():
+                    raw_name = str(row[0]).strip()
+                    nkey = norm_geo(raw_name)
+                    if nkey in norm_map:
+                        geo_id, display_name = norm_map[nkey]
+                        if nkey in counts:
+                            counts[nkey]["total"] += row[1]
+                            counts[nkey]["sin_mt"] += row[2]
+                        else:
+                            counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
 
-            for row in db.execute(q).fetchall():
-                raw_name = str(row[0]).strip()
-                nkey = norm_geo(raw_name)
-                if nkey in norm_map:
-                    geo_id, display_name = norm_map[nkey]
-                    if nkey in counts:
-                        counts[nkey]["total"] += row[1]
-                        counts[nkey]["sin_mt"] += row[2]
-                    else:
-                        counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
+            elif nivel == "provincia":
+                q = text("""
+                    SELECT
+                        profile ->> 'distrito' AS distrito,
+                        count(*) AS total,
+                        count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
+                    FROM clients
+                    WHERE profile ->> 'distrito' IS NOT NULL AND profile ->> 'distrito' != ''
+                    GROUP BY distrito
+                """)
+                for row in db.execute(q).fetchall():
+                    raw_dist = str(row[0]).strip()
+                    total, sin_mt = row[1], row[2]
+                    nd = norm_geo(raw_dist)
+                    prov_info = NORM_DIST_TO_PROV.get(nd)
+                    if not prov_info:
+                        prov_info_dept = NORM_DIST_TO_DEPTO.get(nd)
+                        if prov_info_dept:
+                            pn = norm_geo(prov_info_dept["nombre"])
+                            if pn in norm_map:
+                                geo_id, display_name = norm_map[pn]
+                                if pn in counts:
+                                    counts[pn]["total"] += total
+                                    counts[pn]["sin_mt"] += sin_mt
+                                else:
+                                    counts[pn] = {"total": total, "sin_mt": sin_mt, "raw_name": display_name}
+                        continue
+                    pn = norm_geo(prov_info["nombre"])
+                    if pn in norm_map:
+                        geo_id, display_name = norm_map[pn]
+                        if pn in counts:
+                            counts[pn]["total"] += total
+                            counts[pn]["sin_mt"] += sin_mt
+                        else:
+                            counts[pn] = {"total": total, "sin_mt": sin_mt, "raw_name": display_name}
 
-            if norm_parent and PARENT_KEY:
-                from app.data.peru_geography import (
-                    NORM_PROV_TO_DEPTO, NORM_DIST_TO_PROV,
-                )
-                parent_members: set[str] = set()
-                if nivel == "provincia":
-                    for pn, dept in NORM_PROV_TO_DEPTO.items():
-                        if norm_geo(dept["nombre"]) == norm_parent:
-                            parent_members.add(pn)
-                elif nivel == "distrito":
-                    for dn, prov in NORM_DIST_TO_PROV.items():
-                        if norm_geo(prov["nombre"]) == norm_parent:
-                            parent_members.add(dn)
-                counts = {k: v for k, v in counts.items() if k in parent_members}
+            else:
+                q = text("""
+                    SELECT
+                        profile ->> 'distrito' AS distrito,
+                        count(*) AS total,
+                        count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
+                    FROM clients
+                    WHERE profile ->> 'distrito' IS NOT NULL AND profile ->> 'distrito' != ''
+                    GROUP BY distrito
+                """)
+                for row in db.execute(q).fetchall():
+                    raw_name = str(row[0]).strip()
+                    nkey = norm_geo(raw_name)
+                    if nkey in norm_map:
+                        geo_id, display_name = norm_map[nkey]
+                        if nkey in counts:
+                            counts[nkey]["total"] += row[1]
+                            counts[nkey]["sin_mt"] += row[2]
+                        else:
+                            counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
 
             items = [
                 {"id": geo_id, "descripcion": d["raw_name"],
