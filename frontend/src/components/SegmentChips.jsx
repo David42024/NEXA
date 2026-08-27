@@ -1,6 +1,14 @@
 import React from 'react'
 import { Flame, AlertTriangle, BatteryWarning, Smartphone, Users } from 'lucide-react'
 
+const DESC_STYLES = {
+  Todos: 'border-slate-200 bg-slate-50 text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300',
+  Oro: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-400/20 dark:bg-emerald-500/5 dark:text-emerald-300',
+  Alerta: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/5 dark:text-rose-300',
+  Gigas: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-400/20 dark:bg-amber-500/5 dark:text-amber-300',
+  Digital: 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-400/20 dark:bg-blue-500/5 dark:text-blue-300',
+}
+
 // Segmentos estratégicos: definición visual + etiqueta corta para el chip del cliente.
 export const SEGMENT_DEFS = {
   Todos: {
@@ -74,10 +82,10 @@ export default function SegmentChips({ segmentos, active = 'Todos', onSelect }) 
         })}
       </div>
       {activeDef?.desc && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs leading-snug text-slate-500 dark:text-slate-400">
-          <activeDef.icon size={13} className="mt-0.5 shrink-0" />
-          {activeDef.desc}
-        </p>
+        <div className={`mt-3 flex items-start gap-2.5 rounded-xl border px-4 py-3 text-xs leading-relaxed ${DESC_STYLES[active] || DESC_STYLES.Todos}`}>
+          <activeDef.icon size={15} className="mt-0.5 shrink-0" />
+          <span>{activeDef.desc}</span>
+        </div>
       )}
     </div>
   )
