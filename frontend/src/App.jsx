@@ -15,6 +15,7 @@ import Funnel from './pages/Funnel.jsx'
 import Admin from './pages/Admin.jsx'
 import HeatmapPage from './pages/HeatmapPage.jsx'
 import Metas from './pages/Metas.jsx'
+import SupervisorSales from './pages/SupervisorSales.jsx'
 
 export default function App() {
   const { user } = useAuth()
@@ -55,6 +56,14 @@ export default function App() {
         element={
           <ProtectedRoute permission="view_recommendation">
             <Layout><Metas /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/supervisor/ventas"
+        element={
+          <ProtectedRoute permission="view_funnel">
+            <Layout><SupervisorSales /></Layout>
           </ProtectedRoute>
         }
       />

@@ -9,7 +9,8 @@ const NAV_ITEMS = [
   { to: '/metas', label: 'Metas', icon: '◉', permission: 'view_recommendation' },
   { to: '/funnel', label: 'Funnel', icon: '▤', permission: 'view_funnel' },
   { to: '/supervisor/mapa-calor', label: 'Mapa de Calor', icon: '▦', permission: 'view_funnel' },
-  { to: '/admin', label: 'Administracion', icon: '⚙', permission: 'manage_roles' },
+  { to: '/supervisor/ventas', label: 'Ventas', icon: '◈', permission: 'view_funnel' },
+  { to: '/admin', label: 'Administración', icon: '⚙', permission: 'manage_roles' },
 ]
 
 export default function Layout({ children }) {
