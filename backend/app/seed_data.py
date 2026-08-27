@@ -669,6 +669,40 @@ def backfill_campania_ofertas(db) -> int:
     return updated
 
 
+def ensure_demo_asesores(db) -> int:
+    """Crea los 10 asesores demo si no existen. Idempotente.
+
+    En Neon (produccion) el seed completo no corre porque hay clientes CLI_*,
+    pero los asesores demo son necesarios para asignar cartera.
+    """
+    DEMO = [
+        ("asesor@nexa.demo", "Ana Torres"),
+        ("asesor2@nexa.demo", "Jose Manuel"),
+        ("asesor3@nexa.demo", "Carmen Ruiz"),
+        ("asesor4@nexa.demo", "Luis Vargas"),
+        ("asesor5@nexa.demo", "Maria Fernandez"),
+        ("asesor6@nexa.demo", "Carlos Mendoza"),
+        ("asesor7@nexa.demo", "Rosa Garcia"),
+        ("asesor8@nexa.demo", "Pedro Sanchez"),
+        ("asesor9@nexa.demo", "Lucia Romero"),
+        ("asesor10@nexa.demo", "Jorge Castillo"),
+    ]
+    created = 0
+    for email, name in DEMO:
+        if not db.query(models.User).filter(models.User.email == email).first():
+            db.add(models.User(
+                email=email,
+                password_hash=hash_password("asesor123"),
+                role="asesor",
+                name=name,
+            ))
+            created += 1
+    if created:
+        db.commit()
+        logging.info("Creados %d asesores demo nuevos", created)
+    return created
+
+
 def backfill_asesor_cartera(db) -> int:
     """Backfill idempotente: asigna clientes sin asesor_id a los asesores demo.
 

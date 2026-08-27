@@ -11,7 +11,7 @@ from app.config import settings
 from app.database import engine, SessionLocal
 from app.api import auth, clients, recommendations, speech, interactions, feedback, funnel, admin, e2e, live, nexabot, calls, asesor, tts, incidents, chat_channel, twilio, supervisor
 from app.services.config_service import ensure_default_config
-from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas, backfill_asesor_cartera
+from app.seed_data import backfill_reclamos, backfill_canales, backfill_campania_ofertas, backfill_asesor_cartera, ensure_demo_asesores
 
 logging.basicConfig(level=logging.INFO)
 
@@ -43,6 +43,7 @@ def _startup_backfills():
         # 2) Client backfills (only for synthetic/demo clients, not CSV imports)
         if inspect(engine).has_table("clients"):
             from app import models
+            ensure_demo_asesores(db)
             n4 = backfill_asesor_cartera(db)
             if n4:
                 logging.info("Backfill cartera completado: %d clientes asignados", n4)
