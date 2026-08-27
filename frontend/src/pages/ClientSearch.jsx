@@ -153,7 +153,7 @@ export default function ClientSearch() {
         )}
       </div>
 
-      <form onSubmit={handleSubmit} className="flex gap-2 mb-2 max-w-xl">
+      <form onSubmit={handleSubmit} className="flex gap-2 mb-2 max-w-2xl">
         <input
           value={query}
           onChange={(e) => { setQuery(e.target.value); setValidationError(null) }}
@@ -198,17 +198,17 @@ export default function ClientSearch() {
 
       {searchMode && !loading && results.length > 0 && !confirmation && (
         <>
-          <div className="flex items-center justify-between mb-2 max-w-2xl">
+          <div className="flex items-center justify-between mb-2">
             <p className="text-xs text-slate-400">Resultados de búsqueda</p>
             <button onClick={backToAll} className="btn-ghost text-xs">Ver todos los clientes →</button>
           </div>
-          <div className="flex flex-wrap items-start gap-6">
-            <div className="card divide-y divide-slate-100 max-w-2xl min-w-0 flex-1">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+            <div className="card divide-y divide-slate-100 min-w-0 lg:col-span-3">
               {results.map((c) => (
                 <ClientRow key={c.id} c={c} onSelect={selectClient} />
               ))}
             </div>
-            <div className="order-first w-full shrink-0 lg:order-none lg:w-auto lg:sticky lg:top-24">
+            <div className="lg:col-span-1 lg:sticky lg:top-24 lg:self-start">
               <ScoreLegend />
             </div>
           </div>
@@ -223,23 +223,23 @@ export default function ClientSearch() {
           <p className="mb-2 text-xs text-slate-400">
             Todos los clientes ordenados por probabilidad de aceptación (motor NBO)
           </p>
-          <div className="flex flex-wrap items-start gap-6">
-            <div className="min-w-0 flex-1 max-w-2xl">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+            <div className="min-w-0 lg:col-span-3">
               {listLoading ? (
                 <p className="text-sm text-slate-400">Cargando clientes…</p>
               ) : list.length === 0 ? (
-                <div className="card p-6 max-w-2xl">
+                <div className="card p-6">
                   <p className="text-sm text-slate-500">No hay clientes registrados.</p>
                 </div>
               ) : (
-                <div className="card divide-y divide-slate-100 max-w-2xl">
+                <div className="card divide-y divide-slate-100">
                   {list.map((c) => (
                     <ClientRow key={c.id} c={c} onSelect={selectClient} />
                   ))}
                 </div>
               )}
 
-              <div className="mt-4 flex flex-wrap items-center gap-3 max-w-2xl">
+              <div className="mt-4 flex flex-wrap items-center gap-3">
                 <button
                   onClick={() => loadList(page - 1)}
                   disabled={page <= 1 || listLoading}
@@ -259,7 +259,7 @@ export default function ClientSearch() {
                 </button>
               </div>
             </div>
-            <div className="order-first w-full shrink-0 lg:order-none lg:w-auto lg:sticky lg:top-24">
+            <div className="lg:col-span-1 lg:sticky lg:top-24 lg:self-start">
               <ScoreLegend />
             </div>
           </div>
@@ -298,10 +298,10 @@ function ClientRow({ c, onSelect }) {
   return (
     <button
       onClick={() => onSelect(c.id)}
-      className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-slate-50 transition-colors dark:hover:bg-white/5"
+      className="w-full flex items-center justify-between px-6 py-5 text-left hover:bg-slate-50 transition-colors dark:hover:bg-white/5"
     >
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="w-10 h-10 shrink-0 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-navy-800">
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="w-12 h-12 shrink-0 rounded-full bg-navy-900/5 flex items-center justify-center font-display font-semibold text-lg text-navy-800 dark:bg-white/10 dark:text-white">
           {c.name?.[0]}
         </div>
         <div className="min-w-0">
