@@ -29,33 +29,34 @@ CANALES = ["WhatsApp", "Llamada", "App"]
 # Jerarquia geografica para distribuir clientes entre departamentos
 from app.data.peru_geography import DEPARTAMENTOS as _DEPTOS, PROVINCIAS as _PROVS, DISTRITOS as _DIST
 
-# Ponderacion de clientes por departamento (mas en Lima, Arequipa, Cusco, etc.)
+# Ponderacion de clientes por departamento (basada en poblacion real de Peru)
+# Total ~100 puntos. Lima concentra mas, pero todos los deptos tienen presencia.
 _DEPTO_PESOS = {
-    15: 25,  # Lima
-    4: 10,   # Arequipa
-    8: 8,    # Cusco
-    20: 7,   # Piura
+    15: 22,  # Lima (provincia)
+    4: 9,    # Arequipa
+    8: 7,    # Cusco
+    20: 6,   # Piura
     13: 6,   # La Libertad
     14: 5,   # Lambayeque
     11: 5,   # Ica
     12: 5,   # Junin
     21: 4,   # Puno
     6: 4,    # Cajamarca
-    2: 3,    # Ancash
+    2: 4,    # Ancash
     22: 3,   # San Martin
     10: 3,   # Huanuco
+    16: 3,   # Loreto
+    7: 2,    # Callao
     1: 2,    # Amazonas
     3: 2,    # Apurimac
     5: 2,    # Ayacucho
-    9: 1,    # Huancavelica
-    16: 2,   # Loreto
+    9: 2,    # Huancavelica
     17: 1,   # Madre de Dios
     18: 1,   # Moquegua
     19: 1,   # Pasco
-    23: 1,   # Tacna
+    23: 2,   # Tacna
     24: 1,   # Tumbes
     25: 2,   # Ucayali
-    7: 1,    # Callao
 }
 
 # Mapeo departamento_id -> lista de provincias con pesos
@@ -68,19 +69,37 @@ for _d in _DIST:
 
 
 def _pick_geo(idx):
-    """Selecciona departamento/provincia/distrito con distribucion ponderada."""
+    """Selecciona departamento/provincia/distrito con distribucion ponderada.
+
+    La capital del departamento siempre tiene mas peso que las demas provincias.
+    Dentro de una provincia, la capital provincial tiene mas peso que los
+    distritos menores. Esto genera un mapa de calor con variabilidad real:
+    clientes concentrados en capitales pero con presencia en zonas menores.
+    """
     rng = random.Random(idx)
+
     # Departamento
     depto_ids = list(_DEPTO_PESOS.keys())
     depto_weights = [_DEPTO_PESOS[d] for d in depto_ids]
     depto_id = rng.choices(depto_ids, weights=depto_weights, k=1)[0]
     depto = next(d for d in _DEPTOS if d["id"] == depto_id)
-    # Provincia (primera por defecto = capital)
+
+    # Provincia (capital del depto = primera provincia tiene mas peso)
     provs = _DEPTO_PROVS.get(depto_id, [])
-    prov = rng.choice(provs) if provs else {"id": depto_id * 100 + 1, "nombre": depto["nombre"]}
-    # Distrito
+    if not provs:
+        return depto["nombre"], depto["nombre"], depto["nombre"]
+    # La primera provincia (capital) tiene peso 3x sobre las demas
+    prov_weights = [3] + [1] * (len(provs) - 1)
+    prov = rng.choices(provs, weights=prov_weights, k=1)[0]
+
+    # Distrito (capital de provincia = primer distrito tiene mas peso)
     dists = _PROV_DISTS.get(prov["id"], [])
-    dist = rng.choice(dists) if dists else {"id": prov["id"] * 100 + 1, "nombre": prov["nombre"]}
+    if not dists:
+        return depto["nombre"], prov["nombre"], prov["nombre"]
+    # El primer distrito (capital provincial) tiene peso 2x sobre los demas
+    dist_weights = [2] + [1] * (len(dists) - 1)
+    dist = rng.choices(dists, weights=dist_weights, k=1)[0]
+
     return depto["nombre"], prov["nombre"], dist["nombre"]
 
 # Canales legacy del primer seed (tipos) -> canales de contacto reales (medios),

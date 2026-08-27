@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { geoMercator, geoPath } from 'd3-geo'
+import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { colorScale, NO_DATA_COLOR, isDark } from './colorScale'
 import normalizeNombre from './normalizeNombre'
 
@@ -14,6 +15,10 @@ const GEO_NAME_KEY = {
   provincia: 'NOMBPROV',
   distrito: 'NOMBDIST',
 }
+
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 4
+const ZOOM_STEP = 0.35
 
 function computeBounds(features) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
@@ -63,6 +68,7 @@ export default function GeoLayer({
 }) {
   const svgRef = useRef(null)
   const [dims, setDims] = useState({ w: 600, h: 500 })
+  const [zoom, setZoom] = useState(1)
 
   useEffect(() => {
     const el = svgRef.current?.parentElement
@@ -73,6 +79,22 @@ export default function GeoLayer({
     })
     ro.observe(el)
     return () => ro.disconnect()
+  }, [])
+
+  useEffect(() => {
+    setZoom(1)
+  }, [nivel])
+
+  const zoomIn = useCallback(() => {
+    setZoom(z => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+  }, [])
+
+  const zoomOut = useCallback(() => {
+    setZoom(z => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
+  }, [])
+
+  const zoomReset = useCallback(() => {
+    setZoom(1)
   }, [])
 
   const dataMap = useMemo(() => {
@@ -116,6 +138,15 @@ export default function GeoLayer({
     return (value - min) / (max - min)
   }, [min, max])
 
+  const viewBox = useMemo(() => {
+    if (zoom === 1) return `0 0 ${dims.w} ${dims.h}`
+    const vw = dims.w / zoom
+    const vh = dims.h / zoom
+    const vx = (dims.w - vw) / 2
+    const vy = (dims.h - vh) / 2
+    return `${vx} ${vy} ${vw} ${vh}`
+  }, [dims.w, dims.h, zoom])
+
   if (!geojson || paths.length === 0) {
     return (
       <div className="flex h-64 items-center justify-center text-sm text-slate-400">
@@ -125,38 +156,74 @@ export default function GeoLayer({
   }
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${dims.w} ${dims.h}`}
-      className="w-full h-auto"
-      role="img"
-      aria-label="Mapa de calor geografico de clientes sin Movistar Total"
-    >
-      {paths.map(({ d, normName, nombre }) => {
-        const item = dataMap[normName]
-        const value = item?.value
-        const intensityVal = value != null ? intensity(value) : null
-        const fill = value != null ? colorScale(intensityVal) : NO_DATA_COLOR
-        const dark = isDark(fill)
-        const isHovered = hoveredId === normName
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={viewBox}
+        className="w-full h-auto"
+        role="img"
+        aria-label="Mapa de calor geografico de clientes sin Movistar Total"
+      >
+        {paths.map(({ d, normName, nombre }) => {
+          const item = dataMap[normName]
+          const value = item?.value
+          const intensityVal = value != null ? intensity(value) : null
+          const fill = value != null ? colorScale(intensityVal) : NO_DATA_COLOR
+          const dark = isDark(fill)
+          const isHovered = hoveredId === normName
 
-        return (
-          <path
-            key={normName}
-            d={d}
-            fill={fill}
-            stroke={isHovered ? '#0e7490' : 'rgba(255,255,255,0.5)'}
-            strokeWidth={isHovered ? 2 : 0.5}
-            className="cursor-pointer transition-all duration-150"
-            style={{
-              filter: isHovered ? 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))' : 'none',
-            }}
-            onClick={() => item && onSelect?.(item)}
-            onMouseEnter={() => item && onHover?.(item)}
-            onMouseLeave={() => onHoverEnd?.()}
-          />
-        )
-      })}
-    </svg>
+          return (
+            <path
+              key={normName}
+              d={d}
+              fill={fill}
+              stroke={isHovered ? '#0e7490' : 'rgba(255,255,255,0.5)'}
+              strokeWidth={isHovered ? 2 : 0.5}
+              className="cursor-pointer transition-all duration-150"
+              style={{
+                filter: isHovered ? 'brightness(1.1) drop-shadow(0 2px 4px rgba(0,0,0,0.2))' : 'none',
+              }}
+              onClick={() => item && onSelect?.(item)}
+              onMouseEnter={() => item && onHover?.(item)}
+              onMouseLeave={() => onHoverEnd?.()}
+            />
+          )
+        })}
+      </svg>
+
+      <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
+        <button
+          onClick={zoomIn}
+          disabled={zoom >= ZOOM_MAX}
+          title="Acercar"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-cyan-600 disabled:opacity-30 disabled:cursor-not-allowed dark:border-white/10 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700 dark:hover:text-cyan-400"
+        >
+          <ZoomIn size={16} />
+        </button>
+        <button
+          onClick={zoomOut}
+          disabled={zoom <= ZOOM_MIN}
+          title="Alejar"
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-cyan-600 disabled:opacity-30 disabled:cursor-not-allowed dark:border-white/10 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700 dark:hover:text-cyan-400"
+        >
+          <ZoomOut size={16} />
+        </button>
+        {zoom !== 1 && (
+          <button
+            onClick={zoomReset}
+            title="Restablecer zoom"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:bg-slate-50 hover:text-cyan-600 dark:border-white/10 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700 dark:hover:text-cyan-400"
+          >
+            <Maximize2 size={16} />
+          </button>
+        )}
+      </div>
+
+      {zoom !== 1 && (
+        <div className="absolute bottom-2 right-2 rounded-md bg-white/80 px-2 py-0.5 text-[11px] font-medium text-slate-500 shadow-sm dark:bg-navy-800/80 dark:text-slate-400">
+          {Math.round(zoom * 100)}%
+        </div>
+      )}
+    </div>
   )
 }
