@@ -14,6 +14,7 @@ import ClientChat from './pages/ClientChat.jsx'
 import Funnel from './pages/Funnel.jsx'
 import Admin from './pages/Admin.jsx'
 import HeatmapPage from './pages/HeatmapPage.jsx'
+import Metas from './pages/Metas.jsx'
 
 export default function App() {
   const { user } = useAuth()
@@ -46,6 +47,14 @@ export default function App() {
         element={
           <ProtectedRoute permission="view_client_profile">
             <Layout><ClientProfile /></Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/metas"
+        element={
+          <ProtectedRoute permission="view_recommendation">
+            <Layout><Metas /></Layout>
           </ProtectedRoute>
         }
       />

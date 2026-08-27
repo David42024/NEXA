@@ -6,9 +6,10 @@ import ThemeToggle from './ThemeToggle.jsx'
 const NAV_ITEMS = [
   { to: '/', label: 'Dashboard', icon: '◱', permission: 'view_dashboard' },
   { to: '/clientes', label: 'Clientes', icon: '◎', permission: 'search_client' },
+  { to: '/metas', label: 'Metas', icon: '◉', permission: 'view_recommendation' },
   { to: '/funnel', label: 'Funnel', icon: '▤', permission: 'view_funnel' },
   { to: '/supervisor/mapa-calor', label: 'Mapa de Calor', icon: '▦', permission: 'view_funnel' },
-  { to: '/admin', label: 'Administración', icon: '⚙', permission: 'manage_roles' },
+  { to: '/admin', label: 'Administracion', icon: '⚙', permission: 'manage_roles' },
 ]
 
 export default function Layout({ children }) {
