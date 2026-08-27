@@ -1,13 +1,4 @@
-/**
- * Pagina del "cliente" para llamada WebRTC P2P.
- *
- * ESTA PAGINA YA NO SE USA: las llamadas ahora son reales via Twilio (PSTN).
- * El cliente recibe una llamada telefonica real, no un link WebRTC.
- *
- * Conservada por si se necesita reactivar el modo demo/WebRTC en el futuro.
- */
-/*
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useRef } from 'react'
 import { useParams, useSearchParams, Link } from 'react-router-dom'
 import {
   Phone,
@@ -54,7 +45,7 @@ export default function ClientCall() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-cyan-500/20 text-cyan-300">
           <PhoneCall className="h-4 w-4" />
         </div>
-        <span className="font-display text-sm font-bold tracking-wide text-white">NEXA · LLAMADA</span>
+        <span className="font-display text-sm font-bold tracking-wide text-white">NEXA - LLAMADA</span>
       </div>
 
       <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-white/5 p-8 text-center shadow-xl backdrop-blur">
@@ -221,9 +212,8 @@ export default function ClientCall() {
       )}
 
       <Link to="/" className="mt-8 text-[11px] text-slate-600 hover:text-slate-400">
-        NEXA · Next Experience & Offer AI
+        NEXA - Next Experience & Offer AI
       </Link>
     </div>
   )
 }
-*/

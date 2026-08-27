@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/calls", tags=["calls"])
 class CallStartRequest(BaseModel):
     client_id: str
     phone_number: str | None = None
+    mode: str | None = None  # "twilio" (default) o "webrtc" (P2P via enlace)
 
 
 def _latest_top_offer(db: Session, client_id: str):
@@ -91,18 +92,26 @@ def start_call(
 
     sess = provider.create_session(client.id, client.name, ctx, offering.id, current_user.id)
 
-    from app.services.twilio_provider import twilio_provider
-    sess.call_mode = "twilio"
-    sess.phone_number = phone_number
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(
-            twilio_provider.dial(
-                sess.id, sess.phone_number, ctx, offering.id, current_user.id
+    call_mode = (payload.mode or "twilio").lower()
+    if call_mode not in ("twilio", "webrtc"):
+        call_mode = "twilio"
+
+    if call_mode == "twilio":
+        from app.services.twilio_provider import twilio_provider
+        sess.call_mode = "twilio"
+        sess.phone_number = phone_number
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                twilio_provider.dial(
+                    sess.id, sess.phone_number, ctx, offering.id, current_user.id
+                )
             )
-        )
-    except RuntimeError:
-        pass  # Sin event loop (tests sync): el dial se omite
+        except RuntimeError:
+            pass  # Sin event loop (tests sync): el dial se omite
+    else:
+        # WebRTC P2P via enlace: el cliente abrira el link en su navegador.
+        sess.call_mode = "webrtc"
 
     return {
         "call_id": sess.id,
@@ -110,7 +119,7 @@ def start_call(
         "client_name": client.name,
         "client_id": client.id,
         "offering_id": offering.id,
-        "call_mode": "twilio",
+        "call_mode": sess.call_mode,
         "phone_number": sess.phone_number,
     }
 
