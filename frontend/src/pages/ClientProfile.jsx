@@ -161,6 +161,12 @@ export default function ClientProfile() {
     api.get('/api/asesor/progreso').then(({ data }) => setProgreso(data)).catch(() => null)
   }, [id])
 
+  useEffect(() => {
+    if (client && !recs && !recLoading && hasPermission('view_recommendation')) {
+      generateRecommendation()
+    }
+  }, [client])
+
   async function generateRecommendation() {
     setRecLoading(true)
     try {
