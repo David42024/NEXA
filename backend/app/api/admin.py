@@ -618,7 +618,9 @@ def get_heatmap(
                 if (geo_id := norm_map[nkey][0]) is not None
             ]
             return {"items": items}
-        except Exception:
+        except Exception as exc:
+            import logging
+            logging.warning("heatmap PG path failed: %s", exc, exc_info=True)
             pass  # fall through to portable
 
     # Portable fallback (SQLite / tests): barrido por lotes

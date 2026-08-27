@@ -29,7 +29,6 @@ export default function useHeatmapData({ nivel, parentName, metricMode = 'porcen
     async function fetchData() {
       try {
         const params = { nivel }
-        if (parentName) params.parent_name = parentName
         const { data } = await api.get('/api/admin/heatmap', { params })
         if (active) setRawData(data.items || [])
       } catch (e) {
@@ -42,7 +41,7 @@ export default function useHeatmapData({ nivel, parentName, metricMode = 'porcen
 
     fetchData()
     return () => { active = false }
-  }, [nivel, parentName])
+  }, [nivel])
 
   const dataMap = useMemo(() => {
     const m = {}
