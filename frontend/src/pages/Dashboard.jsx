@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
-import KpiCard from '../components/KpiCard.jsx'
-import { Phone, Target, Users, ArrowRight } from 'lucide-react'
+import { Phone, Target, Users, ArrowRight, BarChart3, Zap, TrendingUp, DollarSign } from 'lucide-react'
 
 const FUNNEL_COLORS = [
   'from-cyan-400 to-sky-500',
@@ -70,14 +69,14 @@ export default function Dashboard() {
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { icon: '👥', label: 'Clientes', value: loading ? '…' : kpis?.total_clientes ?? '—', sub: 'cartera total', gradient: 'from-sky-500 to-blue-600', shadow: 'shadow-blue-500/20' },
-          { icon: '🎯', label: 'Elegibles MT', value: loading ? '…' : kpis?.elegibles_mt ?? '—', sub: 'con Movistar Total', gradient: 'from-cyan-500 to-cyan-600', shadow: 'shadow-cyan-500/20' },
-          { icon: '📈', label: 'Conversion', value: loading ? '…' : `${kpis?.conversion_pct ?? 0}%`, sub: 'aceptadas / contactadas', gradient: 'from-emerald-500 to-teal-500', shadow: 'shadow-emerald-500/20' },
-          { icon: '💰', label: 'Valor potencial', value: loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`, sub: kpis?.elegibles_mt != null ? `${kpis.elegibles_mt} elegibles x S/ 22.3/mes` : 'mensual', gradient: 'from-navy-700 to-navy-800', shadow: 'shadow-navy-500/20' },
+          { Icon: Users, label: 'Clientes', value: loading ? '…' : kpis?.total_clientes ?? '—', sub: 'cartera total', gradient: 'from-sky-500 to-blue-600', shadow: 'shadow-blue-500/20' },
+          { Icon: Zap, label: 'Elegibles MT', value: loading ? '…' : kpis?.elegibles_mt ?? '—', sub: 'con Movistar Total', gradient: 'from-cyan-500 to-cyan-600', shadow: 'shadow-cyan-500/20' },
+          { Icon: TrendingUp, label: 'Conversion', value: loading ? '…' : `${kpis?.conversion_pct ?? 0}%`, sub: 'aceptadas / contactadas', gradient: 'from-emerald-500 to-teal-500', shadow: 'shadow-emerald-500/20' },
+          { Icon: DollarSign, label: 'Valor potencial', value: loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`, sub: kpis?.elegibles_mt != null ? `${kpis.elegibles_mt} elegibles x S/ 22.3/mes` : 'mensual', gradient: 'from-navy-700 to-navy-800', shadow: 'shadow-navy-500/20' },
         ].map((kpi) => (
           <div key={kpi.label} className="flex items-center gap-5 rounded-2xl border border-black/60 bg-white p-6 transition-colors dark:border-white/60 dark:bg-navy-800/60">
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-2xl text-white shadow-lg ${kpi.gradient} ${kpi.shadow}`}>
-              {kpi.icon}
+            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg ${kpi.gradient} ${kpi.shadow}`}>
+              <kpi.Icon className="h-7 w-7" />
             </div>
             <div className="min-w-0">
               <p className="label-eyebrow">{kpi.label}</p>
@@ -277,6 +276,20 @@ export default function Dashboard() {
           </section>
         </>
       )}
+
+      {/* Footer */}
+      <div className="mt-8 flex flex-col items-center gap-4 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white px-6 py-8 text-center dark:border-white/60 dark:from-navy-800/60 dark:to-navy-900/60 sm:flex-row sm:justify-center sm:gap-6">
+        <img src="/nexa-logo2.png" alt="NEXA" className="h-10 w-auto object-contain" />
+        <div className="hidden h-8 w-px bg-slate-200 dark:bg-white/10 sm:block" />
+        <img src="/movistar.png" alt="Movistar" className="h-8 w-auto object-contain" />
+      </div>
+      <p className="mt-4 text-center text-xs text-slate-400 dark:text-slate-500">
+        Potenciado por <span className="font-semibold text-navy-800 dark:text-white">NEXA</span> · Impulsado por la inteligencia de{' '}
+        <span className="font-semibold text-cyan-600 dark:text-cyan-400">Movistar</span>
+      </p>
+      <p className="mt-1 text-center text-[11px] text-slate-300 dark:text-slate-600">
+        Transformando la experiencia de ventas con datos, IA y pasion por conectar.
+      </p>
     </div>
   )
 }
