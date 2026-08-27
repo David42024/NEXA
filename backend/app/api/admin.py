@@ -575,33 +575,19 @@ def get_heatmap(
             fallback_col = f"profile ->> '{FALLBACK_KEY}'" if FALLBACK_KEY else col
             agg_col = f"COALESCE({col}, {fallback_col})" if FALLBACK_KEY else col
 
-            parent_select = ""
-            parent_group = ""
-            if PARENT_KEY:
-                pcol = f"profile ->> '{PARENT_KEY}'"
-                parent_select = f", {pcol} AS parent_name"
-                parent_group = f", {pcol}"
-
             q = text(f"""
                 SELECT
                     {agg_col} AS geo_name,
                     count(*) AS total,
                     count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
-                    {parent_select}
                 FROM clients
                 WHERE {agg_col} IS NOT NULL AND {agg_col} != ''
-                GROUP BY {agg_col} {parent_group}
+                GROUP BY {agg_col}
             """)
 
             for row in db.execute(q).fetchall():
                 raw_name = str(row[0]).strip()
                 nkey = norm_geo(raw_name)
-                raw_parent = str(row[3]).strip() if len(row) > 3 and row[3] else None
-                nparent = norm_geo(raw_parent) if raw_parent else None
-
-                if norm_parent and nparent and nparent != norm_parent:
-                    continue
-
                 if nkey in norm_map:
                     geo_id, display_name = norm_map[nkey]
                     if nkey in counts:
@@ -609,6 +595,21 @@ def get_heatmap(
                         counts[nkey]["sin_mt"] += row[2]
                     else:
                         counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
+
+            if norm_parent and PARENT_KEY:
+                from app.data.peru_geography import (
+                    NORM_PROV_TO_DEPTO, NORM_DIST_TO_PROV,
+                )
+                parent_members: set[str] = set()
+                if nivel == "provincia":
+                    for pn, dept in NORM_PROV_TO_DEPTO.items():
+                        if norm_geo(dept["nombre"]) == norm_parent:
+                            parent_members.add(pn)
+                elif nivel == "distrito":
+                    for dn, prov in NORM_DIST_TO_PROV.items():
+                        if norm_geo(prov["nombre"]) == norm_parent:
+                            parent_members.add(dn)
+                counts = {k: v for k, v in counts.items() if k in parent_members}
 
             items = [
                 {"id": geo_id, "descripcion": d["raw_name"],
