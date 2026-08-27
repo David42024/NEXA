@@ -2,24 +2,13 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
-import { Phone, Target, Users, ArrowRight, BarChart3, Zap, TrendingUp, DollarSign } from 'lucide-react'
-
-const FUNNEL_COLORS = [
-  'from-cyan-400 to-sky-500',
-  'from-sky-400 to-blue-500',
-  'from-blue-400 to-blue-600',
-  'from-cyan-500 to-cyan-600',
-  'from-sky-500 to-blue-700',
-]
+import { Phone, Target, Users, ArrowRight, Zap, TrendingUp, DollarSign, Droplets, PhoneCall, Award, Clock, Shield, Banknote } from 'lucide-react'
 
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const isAsesor = user?.role === 'asesor'
   const [kpis, setKpis] = useState(null)
-  const [funnel, setFunnel] = useState(null)
-  const [asesores, setAsesores] = useState(null)
-  const [asesoresMeta, setAsesoresMeta] = useState(4)
   const [progreso, setProgreso] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -27,20 +16,11 @@ export default function Dashboard() {
     async function load() {
       try {
         const kpiRes = api.get('/api/admin/kpis').catch(() => ({ data: null }))
-        const funnelRes = isAsesor
-          ? Promise.resolve({ data: null })
-          : api.get('/api/funnel/daily').catch(() => ({ data: null }))
-        const asesoresRes = isAsesor
-          ? Promise.resolve({ data: null })
-          : api.get('/api/admin/asesores').catch(() => null)
         const progresoRes = isAsesor
           ? api.get('/api/asesor/progreso').catch(() => null)
           : Promise.resolve({ data: null })
-        const [k, f, a, p] = await Promise.all([kpiRes, funnelRes, asesoresRes, progresoRes])
+        const [k, p] = await Promise.all([kpiRes, progresoRes])
         setKpis(k.data)
-        setFunnel(f.data)
-        setAsesores(a?.data?.asesores || null)
-        setAsesoresMeta(a?.data?.meta_ventas ?? 60)
         setProgreso(p?.data || null)
       } finally {
         setLoading(false)
@@ -152,127 +132,109 @@ export default function Dashboard() {
         </>
       ) : (
         <>
-          {/* Desempeño de asesores (vista supervisor/admin) */}
+          {/* KPIs Estratégicos — Vista Supervisor */}
           <section className={`animate-nexa-rise ${card}`}>
-            <div className="mb-4 flex items-center justify-between">
-              <p className="label-eyebrow">Desempeno de asesores - este mes</p>
-              <span className="text-xs text-slate-400">Meta: {asesoresMeta} ventas/mes</span>
+            <div className="mb-5">
+              <p className="label-eyebrow">KPIs Estratégicos</p>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Indicadores clave para la toma de decisiones</p>
             </div>
 
-            {loading || !asesores ? (
-              <div className="space-y-4 animate-pulse">
-                {[...Array(3)].map((_, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className="h-9 w-9 rounded-full bg-slate-200 dark:bg-navy-700" />
-                    <div className="flex-1 space-y-2">
-                      <div className="h-3.5 w-1/3 rounded bg-slate-200 dark:bg-navy-700" />
-                      <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-navy-700" />
-                    </div>
-                    <div className="h-4 w-16 rounded bg-slate-200 dark:bg-navy-700" />
+            {/* Predictivos */}
+            <div className="mb-6">
+              <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
+                <Droplets className="h-3.5 w-3.5" /> Predictivos
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex items-center gap-5 rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-6 transition-colors dark:border-cyan-400/20 dark:from-cyan-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-500 to-cyan-600 text-white shadow-lg shadow-cyan-500/20">
+                    <Droplets className="h-7 w-7" />
                   </div>
-                ))}
-              </div>
-            ) : asesores.length === 0 ? (
-              <p className="text-sm text-slate-400">No hay asesores registrados.</p>
-            ) : (
-              <div className="divide-y divide-slate-100 dark:divide-white/5">
-                {asesores.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 py-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-navy-900/5 font-display text-sm font-semibold text-navy-800 dark:bg-white/10 dark:text-white">
-                      {a.name?.[0] || '?'}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-medium text-navy-900 dark:text-white">{a.name}</p>
-                        {a.cumplido ? (
-                          <span className="badge bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300">
-                            Cumplido
-                          </span>
-                        ) : (
-                          <span className="badge bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300">
-                            En curso
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
-                          <div
-                            className={`h-full rounded-full bg-gradient-to-r ${
-                              a.cumplido ? 'from-emerald-400 to-green-500' : 'from-cyan-400 to-sky-500'
-                            }`}
-                            style={{ width: `${Math.min(a.progreso, 100)}%`, transition: 'width 0.6s ease' }}
-                          />
-                        </div>
-                        <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
-                          {a.ventas}/{a.meta_ventas} ventas
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="font-display text-lg font-bold text-navy-900 dark:text-white">{a.ventas}</p>
-                      <p className="text-xs text-slate-400">{a.ofrecimientos} ofrec.</p>
-                    </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400">Incidencia de Hambre de Datos</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">53.8%</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">clientes con consumo al 100% antes de fin de mes</p>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Funnel */}
-          <section className={`animate-nexa-rise ${card} [animation-delay:60ms]`}>
-            <div className="mb-4 flex items-center justify-between">
-              <p className="label-eyebrow">Funnel - ultimos 7 dias</p>
-              <button
-                onClick={() => navigate('/funnel')}
-                className="text-sm font-medium text-cyan-600 transition-colors hover:text-cyan-500 dark:text-cyan-400"
-              >
-                Ver funnel →
-              </button>
-            </div>
-            {loading || !funnel ? (
-              <div className="space-y-4 animate-pulse">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="space-y-1.5">
-                    <div className="flex justify-between">
-                      <div className="h-3 w-24 rounded bg-slate-200 dark:bg-navy-700" />
-                      <div className="h-3 w-12 rounded bg-slate-200 dark:bg-navy-700" />
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-slate-200 dark:bg-navy-700" />
+                </div>
+                <div className="flex items-center gap-5 rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-6 transition-colors dark:border-cyan-400/20 dark:from-cyan-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-sky-500 text-white shadow-lg shadow-sky-500/20">
+                    <PhoneCall className="h-7 w-7" />
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {funnel.stages.map((s, i) => {
-                  const max = funnel.stages[0]?.value || 1
-                  const pct = max > 0 ? Math.round((s.value / max) * 100) : 0
-                  const width = Math.max(pct, 4)
-                  return (
-                    <div key={s.label}>
-                      <div className="mb-1 flex items-baseline justify-between text-xs">
-                        <span className="text-slate-500 dark:text-slate-400">{s.label}</span>
-                        <span className="font-mono font-medium text-navy-800 dark:text-white">
-                          {s.value.toLocaleString('es-PE')}
-                          <span className="ml-1 text-slate-400">({pct}%)</span>
-                        </span>
-                      </div>
-                      <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-navy-700">
-                        <div
-                          className={`h-full rounded-full bg-gradient-to-r ${FUNNEL_COLORS[i % FUNNEL_COLORS.length]}`}
-                          style={{ width: `${width}%`, transition: 'width 0.6s ease' }}
-                        />
-                      </div>
-                    </div>
-                  )
-                })}
-                <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 dark:border-white/5">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Tasa de conversion</span>
-                  <span className="font-display text-lg font-bold text-cyan-600 dark:text-cyan-400">
-                    {funnel.conversion_rate}%
-                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-cyan-600 dark:text-cyan-400">Contactabilidad Efectiva</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">30%</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">llamadas contestadas en franja horaria recomendada</p>
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
+
+            {/* Operativos */}
+            <div className="mb-6">
+              <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <Award className="h-3.5 w-3.5" /> Operativos
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex items-center gap-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 transition-colors dark:border-emerald-400/20 dark:from-emerald-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/20">
+                    <Award className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">Tasa de Conversión NBO</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">10.3%</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">migraciones a Movistar Total / contactados</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 transition-colors dark:border-emerald-400/20 dark:from-emerald-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-green-500 text-white shadow-lg shadow-green-500/20">
+                    <Clock className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">TMO (Tiempo Medio de Operación)</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">—</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">tiempo promedio por gestión de venta</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Financieros */}
+            <div>
+              <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                <Banknote className="h-3.5 w-3.5" /> Financieros
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="flex items-center gap-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 transition-colors dark:border-amber-400/20 dark:from-amber-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/20">
+                    <TrendingUp className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Crecimiento del ARPU</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">+ S/ 57</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">incremento mensual por usuario</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 transition-colors dark:border-amber-400/20 dark:from-amber-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-500 text-white shadow-lg shadow-yellow-500/20">
+                    <Shield className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Salvataje de Churn</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">1.4%</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">clientes en riesgo retenidos</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 transition-colors dark:border-amber-400/20 dark:from-amber-500/5 dark:to-transparent">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-600 to-orange-600 text-white shadow-lg shadow-orange-500/20">
+                    <DollarSign className="h-7 w-7" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-amber-600 dark:text-amber-400">Expansión de MRR</p>
+                    <p className="mt-0.5 font-display text-3xl font-bold text-navy-900 dark:text-white">S/ 1.7M</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-400">nuevos ingresos mensuales recurrentes</p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </section>
         </>
       )}
