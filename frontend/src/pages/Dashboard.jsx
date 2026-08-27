@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../utils/api'
 import { useAuth } from '../context/AuthContext.jsx'
 import KpiCard from '../components/KpiCard.jsx'
-import { Phone, Target, Users } from 'lucide-react'
+import { Phone, Target, Users, ArrowRight } from 'lucide-react'
 
 const FUNNEL_COLORS = [
   'from-cyan-400 to-sky-500',
