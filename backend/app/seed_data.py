@@ -672,25 +672,48 @@ def backfill_campania_ofertas(db) -> int:
 def backfill_asesor_cartera(db) -> int:
     """Backfill idempotente: asigna clientes sin asesor_id a los asesores demo.
 
-    Si un asesor tiene clientes asignados (via csv_loader), no se toca nada.
-    Solo se asignan clientes con asesor_id IS NULL distribuyendolos entre todos
-    los asesores disponibles (round-robin).
+    Funciona tanto para clientes sinteticos (C00001...) como para los cargados
+    desde CSV (CLI_*). Usa UPDATE masivos por rango (como csv_loader) para no
+    saturar la RAM ni la conexion SSL en bases grandes.
     """
-    tiene_cartera = db.query(models.Client.id).filter(
-        models.Client.asesor_id.isnot(None)
-    ).first()
-    if tiene_cartera:
-        return 0
+    from sqlalchemy import update as sa_update
+    import math
 
     asesores = db.query(models.User).filter(models.User.role == "asesor").order_by(models.User.id).all()
-    if not asesores:
+    n = len(asesores)
+    if n == 0:
         return 0
 
+    pending_count = db.query(models.Client.id).filter(models.Client.asesor_id.is_(None)).count()
+    if pending_count == 0:
+        return 0
+
+    # Obtener todos los IDs de clientes sin asesor, ordenados
+    unassigned_ids = [
+        r[0] for r in db.query(models.Client.id)
+        .filter(models.Client.asesor_id.is_(None))
+        .order_by(models.Client.id).all()
+    ]
+    if not unassigned_ids:
+        return 0
+
+    total = len(unassigned_ids)
+    per = max(1, math.ceil(total / n))
+
     updated = 0
-    for i, c in enumerate(_clients_batches(db, commit_each=True, solo_sinteticos=True)):
-        if c.asesor_id is None:
-            c.asesor_id = asesores[i % len(asesores)].id
-            updated += 1
+    for i in range(0, total, per):
+        chunk = unassigned_ids[i:i + per]
+        aid = asesores[min(i // per, n - 1)].id
+        result = db.execute(
+            sa_update(models.Client)
+            .where(models.Client.id.in_(chunk), models.Client.asesor_id.is_(None))
+            .values(asesor_id=aid)
+        )
+        updated += result.rowcount or 0
+        if updated % 5000 == 0:
+            db.commit()
+    db.commit()
+    logging.info("Backfill cartera: %d clientes asignados a %d asesores (~%d c/u)", updated, n, per)
     return updated
 
 

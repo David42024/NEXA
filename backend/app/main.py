@@ -43,17 +43,19 @@ def _startup_backfills():
         # 2) Client backfills (only for synthetic/demo clients, not CSV imports)
         if inspect(engine).has_table("clients"):
             from app import models
+            n4 = backfill_asesor_cartera(db)
+            if n4:
+                logging.info("Backfill cartera completado: %d clientes asignados", n4)
             has_synth = db.query(models.Client.id).filter(
                 ~models.Client.id.like("CLI%")
             ).first() is not None
             if has_synth:
                 n1 = backfill_reclamos(db)
                 n2, n3 = backfill_canales(db), backfill_campania_ofertas(db)
-                n4 = backfill_asesor_cartera(db)
-                if any([n1, n2, n3, n4]):
+                if any([n1, n2, n3]):
                     logging.info(
-                        "Backfills completados: reclamos=%d canales=%d ofertas=%d cartera=%d",
-                        n1, n2, n3, n4,
+                        "Backfills completados: reclamos=%d canales=%d ofertas=%d",
+                        n1, n2, n3,
                     )
             else:
                 logging.info("No hay clientes sinteticos; backfills omitidos.")
