@@ -69,30 +69,29 @@ export default function Dashboard() {
 
       {/* KPIs */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          icon="👥" label="Clientes" accent="blue"
-          value={loading ? '…' : kpis?.total_clientes ?? '—'}
-          sublabel="cartera total"
-          loading={loading}
-        />
-        <KpiCard
-          icon="🎯" label="Elegibles MT" accent="cyan"
-          value={loading ? '…' : kpis?.elegibles_mt ?? '—'}
-          sublabel="con Movistar Total"
-          loading={loading}
-        />
-        <KpiCard
-          icon="📈" label="Conversion" accent="emerald"
-          value={loading ? '…' : `${kpis?.conversion_pct ?? 0}%`}
-          sublabel="aceptadas / contactadas"
-          loading={loading}
-        />
-        <KpiCard
-          icon="💰" label="Valor potencial" accent="navy"
-          value={loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`}
-          sublabel={kpis?.elegibles_mt != null ? `${kpis.elegibles_mt} elegibles x S/ 22.3/mes` : 'mensual'}
-          loading={loading}
-        />
+        {[
+          { icon: '👥', label: 'Clientes', value: loading ? '…' : kpis?.total_clientes ?? '—', sub: 'cartera total', gradient: 'from-sky-500 to-blue-600', shadow: 'shadow-blue-500/20' },
+          { icon: '🎯', label: 'Elegibles MT', value: loading ? '…' : kpis?.elegibles_mt ?? '—', sub: 'con Movistar Total', gradient: 'from-cyan-500 to-cyan-600', shadow: 'shadow-cyan-500/20' },
+          { icon: '📈', label: 'Conversion', value: loading ? '…' : `${kpis?.conversion_pct ?? 0}%`, sub: 'aceptadas / contactadas', gradient: 'from-emerald-500 to-teal-500', shadow: 'shadow-emerald-500/20' },
+          { icon: '💰', label: 'Valor potencial', value: loading ? '…' : `S/ ${kpis?.valor_potencial_soles?.toLocaleString('es-PE') ?? 0}`, sub: kpis?.elegibles_mt != null ? `${kpis.elegibles_mt} elegibles x S/ 22.3/mes` : 'mensual', gradient: 'from-navy-700 to-navy-800', shadow: 'shadow-navy-500/20' },
+        ].map((kpi) => (
+          <div key={kpi.label} className="flex items-center gap-5 rounded-2xl border border-black/60 bg-white p-6 transition-colors dark:border-white/60 dark:bg-navy-800/60">
+            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br text-2xl text-white shadow-lg ${kpi.gradient} ${kpi.shadow}`}>
+              {kpi.icon}
+            </div>
+            <div className="min-w-0">
+              <p className="label-eyebrow">{kpi.label}</p>
+              {loading ? (
+                <div className="mt-1.5 h-7 w-20 animate-pulse rounded bg-slate-200 dark:bg-navy-700" />
+              ) : (
+                <p className="mt-0.5 truncate font-display text-3xl font-bold text-navy-900 dark:text-white">
+                  {kpi.value}
+                </p>
+              )}
+              {kpi.sub && !loading && <p className="mt-0.5 truncate text-xs text-slate-400">{kpi.sub}</p>}
+            </div>
+          </div>
+        ))}
       </div>
 
       {isAsesor ? (
