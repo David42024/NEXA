@@ -526,14 +526,14 @@ def _count_segmentos_portable(db, counts):
 @router.get("/heatmap")
 def get_heatmap(
     nivel: str = Query("departamento", pattern="^(departamento|provincia|distrito)$"),
-    id_padre: int | None = Query(None),
+    parent_name: str | None = Query(None),
     db: Session = Depends(get_db),
     _user=Depends(require_permission("view_funnel")),
 ):
     """Agrega clientes por nivel geografico con conteo de sin Movistar Total.
 
     nivel: 'departamento', 'provincia' o 'distrito'
-    id_padre: ID del padre (requerido para provincia y distrito)
+    parent_name: nombre del padre para filtrar (ej. nombre del depto al ver provincias)
 
     En Postgres (produccion Neon) se usa un unico query JSON sobre la columna
     profile para evitar escanear 100k perfiles en Python (timeout por SSL).
@@ -545,15 +545,17 @@ def get_heatmap(
     )
 
     if nivel == "departamento":
-        # Primary: ubicacion_departamento; fallback: distrito (may be dept name)
         GEO_KEY = "ubicacion_departamento"
         FALLBACK_KEY = "distrito"
+        PARENT_KEY = None
     elif nivel == "provincia":
         GEO_KEY = "ubicacion_provincia"
         FALLBACK_KEY = None
+        PARENT_KEY = "ubicacion_departamento"
     else:
         GEO_KEY = "ubicacion_distrito"
         FALLBACK_KEY = "distrito"
+        PARENT_KEY = "ubicacion_provincia"
 
     norm_map = {}
     if nivel == "departamento":
@@ -563,32 +565,51 @@ def get_heatmap(
     else:
         norm_map = {norm_geo(d["nombre"]): (d["id"], d["nombre"]) for d in DISTRITOS}
 
+    norm_parent = norm_geo(parent_name) if parent_name else None
     counts = {}
 
     if db.get_bind().dialect.name == "postgresql":
         try:
             from sqlalchemy import text
-            # Aggregate directly in Postgres using JSON operators
             col = f"profile ->> '{GEO_KEY}'"
             fallback_col = f"profile ->> '{FALLBACK_KEY}'" if FALLBACK_KEY else col
-            # Use COALESCE: prefer primary key, fallback to secondary
             agg_col = f"COALESCE({col}, {fallback_col})" if FALLBACK_KEY else col
+
+            parent_select = ""
+            parent_group = ""
+            if PARENT_KEY:
+                pcol = f"profile ->> '{PARENT_KEY}'"
+                parent_select = f", {pcol} AS parent_name"
+                parent_group = f", {pcol}"
 
             q = text(f"""
                 SELECT
                     {agg_col} AS geo_name,
                     count(*) AS total,
                     count(*) FILTER (WHERE NOT (profile -> 'elegibilidad' ->> 'movistar_total')::boolean) AS sin_mt
+                    {parent_select}
                 FROM clients
                 WHERE {agg_col} IS NOT NULL AND {agg_col} != ''
-                GROUP BY geo_name
+                GROUP BY {agg_col} {parent_group}
             """)
+
             for row in db.execute(q).fetchall():
                 raw_name = str(row[0]).strip()
                 nkey = norm_geo(raw_name)
+                raw_parent = str(row[3]).strip() if len(row) > 3 and row[3] else None
+                nparent = norm_geo(raw_parent) if raw_parent else None
+
+                if norm_parent and nparent and nparent != norm_parent:
+                    continue
+
                 if nkey in norm_map:
                     geo_id, display_name = norm_map[nkey]
-                    counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
+                    if nkey in counts:
+                        counts[nkey]["total"] += row[1]
+                        counts[nkey]["sin_mt"] += row[2]
+                    else:
+                        counts[nkey] = {"total": row[1], "sin_mt": row[2], "raw_name": display_name}
+
             items = [
                 {"id": geo_id, "descripcion": d["raw_name"],
                  "totalClientes": d["total"], "clientesSinMovistarTotal": d["sin_mt"]}
@@ -645,8 +666,15 @@ def get_heatmap(
                 if pdp:
                     dept_name = pdp["nombre"]
 
+            if norm_parent:
+                if nivel == "provincia" and dept_name:
+                    if norm_geo(dept_name) != norm_parent:
+                        continue
+                elif nivel == "distrito" and prov_name:
+                    if norm_geo(prov_name) != norm_parent:
+                        continue
+
             geo_value = None
-            raw_name = None
             if nivel == "departamento" and dept_name:
                 geo_value = dept_name
             elif nivel == "provincia" and prov_name:

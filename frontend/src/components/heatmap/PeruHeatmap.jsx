@@ -79,7 +79,12 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
     }
   }, [nivel, currentGeojson, geoLoading])
 
-  const { joinByName, loading, error } = useHeatmapData({ nivel, metricMode })
+  const parentName = useMemo(() => {
+    if (nivel === 'departamento') return null
+    return parentContext?.deptoName || parentContext?.provName || null
+  }, [nivel, parentContext])
+
+  const { joinByName, loading, error } = useHeatmapData({ nivel, parentName, metricMode })
 
   const nameKey = GEO_NAME_KEY[nivel]
   const parentKey = PARENT_NAME_KEY[nivel]
@@ -129,11 +134,6 @@ export default function PeruHeatmap({ metricMode = 'porcentaje' }) {
     const values = items.map(i => i.value).filter(v => v != null)
     return values.length > 0 ? Math.max(...values) : 1
   }, [items])
-
-  const parentName = useMemo(() => {
-    if (nivel === 'departamento') return 'Peru'
-    return parentContext?.deptoName || parentContext?.provName || ''
-  }, [nivel, parentContext])
 
   const breadcrumb = useMemo(
     () => buildBreadcrumb(nivel, parentContext),
